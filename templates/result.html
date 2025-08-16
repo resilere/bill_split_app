@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bill Splitter - Assign Items</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Assign Items</h1>
+        
+        <form action="{{ url_for('save_bill') }}" method="post" class="space-y-6">
+            <!-- Hidden inputs to pass filename and date -->
+            <input type="hidden" name="filename" value="{{ filename }}">
+            <input type="hidden" name="bill_date" value="{{ bill_date }}">
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700">Who Paid?</label>
+                <div class="flex space-x-4 mt-2">
+                    <label class="flex items-center cursor-pointer">
+                        <input type="checkbox" name="payer_id" value="eser" class="rounded text-indigo-600 focus:ring-indigo-500">
+                        <span class="ml-2 text-sm text-gray-700">Eser</span>
+                    </label>
+                    <label class="flex items-center cursor-pointer">
+                        <input type="checkbox" name="payer_id" value="david" class="rounded text-indigo-600 focus:ring-indigo-500">
+                        <span class="ml-2 text-sm text-gray-700">David</span>
+                    </label>
+                </div>
+            </div>
+            
+            {% for item in parsed_items %}
+            <div class="flex items-center space-x-4 p-4 border rounded-xl shadow-sm bg-gray-50">
+                <!-- Hidden inputs to carry data -->
+                <input type="hidden" name="item_description_{{ loop.index0 }}" value="{{ item.description }}">
+                <input type="hidden" name="item_price_{{ loop.index0 }}" value="{{ item.price }}">
+                
+                <div class="flex-grow">
+                    <p class="font-medium text-gray-900">{{ item.description }}</p>
+                    <p class="text-sm text-gray-600">€{{ "%.2f"|format(item.price) }}</p>
+                </div>
+
+                <!-- Checkboxes for assignment -->
+                <div class="flex items-center space-x-4">
+                    <label class="flex items-center cursor-pointer">
+                        <input type="radio" name="assigned_to_{{ loop.index0 }}" value="eser" class="text-indigo-600 focus:ring-indigo-500 rounded-full" {% if not loop.index0 %}checked{% endif %}>
+                        <span class="ml-2 text-sm text-gray-700">Eser</span>
+                    </label>
+                    <label class="flex items-center cursor-pointer">
+                        <input type="radio" name="assigned_to_{{ loop.index0 }}" value="david" class="text-indigo-600 focus:ring-indigo-500 rounded-full">
+                        <span class="ml-2 text-sm text-gray-700">David</span>
+                    </label>
+                    <label class="flex items-center cursor-pointer">
+                        <input type="radio" name="assigned_to_{{ loop.index0 }}" value="shared" class="text-indigo-600 focus:ring-indigo-500 rounded-full" checked>
+                        <span class="ml-2 text-sm text-gray-700">Shared</span>
+                    </label>
+                    <label class="flex items-center cursor-pointer">
+                        <input type="radio" name="assigned_to_{{ loop.index0 }}" value="excluded" class="text-indigo-600 focus:ring-indigo-500 rounded-full">
+                        <span class="ml-2 text-sm text-gray-700">Excluded</span>
+                    </label>
+                </div>
+            </div>
+            {% endfor %}
+
+            <div class="flex justify-center mt-8">
+                <button type="submit" class="w-full px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                    Save Bill
+                </button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
