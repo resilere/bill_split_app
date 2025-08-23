@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bill Details</title>
+    <title>Bill Splitter Result</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,37 +15,72 @@
         }
     </style>
 </head>
-<body class="flex flex-col items-center min-h-screen p-4">
-    <div class="w-full max-w-3xl bg-white p-8 rounded-2xl shadow-lg border border-gray-200 text-center">
-        <h1 class="text-3xl font-bold text-gray-800 mb-2">Bill Details</h1>
-        <p class="text-gray-500 mb-6">{{ receipt.filename }} ({{ receipt.bill_date }})</p>
-        
-        <div class="overflow-hidden rounded-lg shadow-sm border border-gray-200 mt-2">
-            <table class="min-w-full text-left text-sm text-gray-500">
-                <thead class="text-xs text-gray-700 uppercase bg-gray-100">
-                    <tr>
-                        <th scope="col" class="px-6 py-3">Item</th>
-                        <th scope="col" class="px-6 py-3">Assigned To</th>
-                        <th scope="col" class="px-6 py-3 text-right">Price</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in items %}
-                    <tr class="bg-white border-b hover:bg-gray-50">
-                        <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{{ item.description }}</td>
-                        <td class="px-6 py-4">{{ item.assigned_to|capitalize }}</td>
-                        <td class="px-6 py-4 text-right">€{{ "%.2f"|format(item.price) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
+        <div class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-800">Review and Assign Items</h1>
+            <p class="mt-2 text-gray-600">File: <span class="font-medium text-gray-800">{{ filename }}</span></p>
+            <p class="mt-2 text-gray-600">Total Sum: <span class="font-medium text-gray-800">{{ '%.2f' | format(total_sum) }} €</span></p>
         </div>
         
-        <div class="mt-8">
-            <a href="{{ url_for('history') }}" class="inline-block w-full px-6 py-3 bg-gray-600 text-white font-medium rounded-lg shadow-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition duration-150 ease-in-out">
-                Back to History
-            </a>
-        </div>
+        <form action="{{ url_for('save_details') }}" method="post">
+            <input type="hidden" name="filename" value="{{ filename }}">
+            <input type="hidden" name="bill_date" value="{{ bill_date }}">
+
+            <!-- Payer selection -->
+            <div class="mb-6">
+                <label class="block text-gray-700 text-lg font-medium mb-2">Who paid for this bill?</label>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center">
+                        <input id="payer-eser" name="payer_id" type="radio" value="eser" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500" required>
+                        <label for="payer-eser" class="ml-2 block text-sm font-medium text-gray-700">Eser</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input id="payer-david" name="payer_id" type="radio" value="david" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                        <label for="payer-david" class="ml-2 block text-sm font-medium text-gray-700">David</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-4">
+                {% for item in parsed_items %}
+                <div class="flex items-center bg-gray-50 p-4 rounded-lg shadow-sm">
+                    <div class="flex-grow">
+                        <input type="text" name="item_description_{{ loop.index0 }}" value="{{ item.description }}" class="w-full text-gray-800 font-medium bg-transparent border-none focus:outline-none">
+                        <input type="hidden" name="item_price_{{ loop.index0 }}" value="{{ '%.2f' | format(item.price) }}">
+                    </div>
+                    <div class="flex-shrink-0 text-right">
+                        <span class="font-bold text-gray-900">{{ '%.2f' | format(item.price) }} €</span>
+                    </div>
+                    
+                    <div class="ml-4 flex-shrink-0 flex items-center space-x-4">
+                        <div class="flex items-center">
+                            <input id="item-eser-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="eser" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                            <label for="item-eser-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">Eser</label>
+                        </div>
+                        <div class="flex items-center">
+                            <input id="item-david-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="david" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                            <label for="item-david-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">David</label>
+                        </div>
+                        <div class="flex items-center">
+                            <input id="item-shared-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="shared" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500" checked>
+                            <label for="item-shared-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">Shared</label>
+                        </div>
+                        <div class="flex items-center">
+                            <input id="item-excluded-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="excluded" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                            <label for="item-excluded-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">Exclude</label>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <div class="mt-8 text-center">
+                <button type="submit" class="w-full px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                    Save Bill and Go to Balances
+                </button>
+            </div>
+        </form>
     </div>
 </body>
 </html>

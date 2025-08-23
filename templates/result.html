@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bill Splitter - Assign Items</title>
+    <title>Bill Splitter Result</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,63 +17,67 @@
 </head>
 <body class="flex flex-col items-center justify-center min-h-screen p-4">
     <div class="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
-        <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Assign Items</h1>
+        <div class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-800">Review and Assign Items</h1>
+            <p class="mt-2 text-gray-600">File: <span class="font-medium text-gray-800">{{ filename }}</span></p>
+            <p class="mt-2 text-gray-600">Total Sum: <span class="font-medium text-gray-800">{{ '%.2f' | format(total_sum) }} €</span></p>
+        </div>
         
-        <form action="{{ url_for('save_bill') }}" method="post" class="space-y-6">
-            <!-- Hidden inputs to pass filename and date -->
+        <form action="{{ url_for('save_bill') }}" method="post">
             <input type="hidden" name="filename" value="{{ filename }}">
             <input type="hidden" name="bill_date" value="{{ bill_date }}">
 
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700">Who Paid?</label>
-                <div class="flex space-x-4 mt-2">
-                    <label class="flex items-center cursor-pointer">
-                        <input type="checkbox" name="payer_id" value="eser" class="rounded text-indigo-600 focus:ring-indigo-500">
-                        <span class="ml-2 text-sm text-gray-700">Eser</span>
-                    </label>
-                    <label class="flex items-center cursor-pointer">
-                        <input type="checkbox" name="payer_id" value="david" class="rounded text-indigo-600 focus:ring-indigo-500">
-                        <span class="ml-2 text-sm text-gray-700">David</span>
-                    </label>
+            <!-- Payer selection -->
+            <div class="mb-6">
+                <label class="block text-gray-700 text-lg font-medium mb-2">Who paid for this bill?</label>
+                <div class="flex items-center space-x-4">
+                    <div class="flex items-center">
+                        <input id="payer-eser" name="payer_id" type="radio" value="eser" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500" required>
+                        <label for="payer-eser" class="ml-2 block text-sm font-medium text-gray-700">Eser</label>
+                    </div>
+                    <div class="flex items-center">
+                        <input id="payer-david" name="payer_id" type="radio" value="david" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                        <label for="payer-david" class="ml-2 block text-sm font-medium text-gray-700">David</label>
+                    </div>
                 </div>
+            </div>
+
+            <div class="space-y-4">
+                {% for item in parsed_items %}
+                <div class="flex items-center bg-gray-50 p-4 rounded-lg shadow-sm">
+                    <div class="flex-grow">
+                        <input type="text" name="item_description_{{ loop.index0 }}" value="{{ item.description }}" class="w-full text-gray-800 font-medium bg-transparent border-none focus:outline-none">
+                        <input type="hidden" name="item_price_{{ loop.index0 }}" value="{{ '%.2f' | format(item.price) }}">
+                    </div>
+                    <div class="flex-shrink-0 text-right">
+                        <span class="font-bold text-gray-900">{{ '%.2f' | format(item.price) }} €</span>
+                    </div>
+                    
+                    <div class="ml-4 flex-shrink-0 flex items-center space-x-4">
+                        <div class="flex items-center">
+                            <input id="item-eser-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="eser" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                            <label for="item-eser-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">Eser</label>
+                        </div>
+                        <div class="flex items-center">
+                            <input id="item-david-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="david" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                            <label for="item-david-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">David</label>
+                        </div>
+                        <div class="flex items-center">
+                            <input id="item-shared-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="shared" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500" checked>
+                            <label for="item-shared-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">Shared</label>
+                        </div>
+                        <div class="flex items-center">
+                            <input id="item-excluded-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="excluded" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
+                            <label for="item-excluded-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">Exclude</label>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
             </div>
             
-            {% for item in parsed_items %}
-            <div class="flex items-center space-x-4 p-4 border rounded-xl shadow-sm bg-gray-50">
-                <!-- Hidden inputs to carry data -->
-                <input type="hidden" name="item_description_{{ loop.index0 }}" value="{{ item.description }}">
-                <input type="hidden" name="item_price_{{ loop.index0 }}" value="{{ item.price }}">
-                
-                <div class="flex-grow">
-                    <p class="font-medium text-gray-900">{{ item.description }}</p>
-                    <p class="text-sm text-gray-600">€{{ "%.2f"|format(item.price) }}</p>
-                </div>
-
-                <!-- Checkboxes for assignment -->
-                <div class="flex items-center space-x-4">
-                    <label class="flex items-center cursor-pointer">
-                        <input type="radio" name="assigned_to_{{ loop.index0 }}" value="eser" class="text-indigo-600 focus:ring-indigo-500 rounded-full" {% if not loop.index0 %}checked{% endif %}>
-                        <span class="ml-2 text-sm text-gray-700">Eser</span>
-                    </label>
-                    <label class="flex items-center cursor-pointer">
-                        <input type="radio" name="assigned_to_{{ loop.index0 }}" value="david" class="text-indigo-600 focus:ring-indigo-500 rounded-full">
-                        <span class="ml-2 text-sm text-gray-700">David</span>
-                    </label>
-                    <label class="flex items-center cursor-pointer">
-                        <input type="radio" name="assigned_to_{{ loop.index0 }}" value="shared" class="text-indigo-600 focus:ring-indigo-500 rounded-full" checked>
-                        <span class="ml-2 text-sm text-gray-700">Shared</span>
-                    </label>
-                    <label class="flex items-center cursor-pointer">
-                        <input type="radio" name="assigned_to_{{ loop.index0 }}" value="excluded" class="text-indigo-600 focus:ring-indigo-500 rounded-full">
-                        <span class="ml-2 text-sm text-gray-700">Excluded</span>
-                    </label>
-                </div>
-            </div>
-            {% endfor %}
-
-            <div class="flex justify-center mt-8">
+            <div class="mt-8 text-center">
                 <button type="submit" class="w-full px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
-                    Save Bill
+                    Save Bill and Go to Balances
                 </button>
             </div>
         </form>
