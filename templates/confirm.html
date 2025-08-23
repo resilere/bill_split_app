@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirm Overwrite</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+    <div class="w-full max-w-lg bg-white p-8 rounded-2xl shadow-lg border border-gray-200 text-center">
+        <div class="mb-6">
+            <h1 class="text-3xl font-bold text-red-600 mb-2">Duplicate Bill Found!</h1>
+            <p class="text-gray-700">A bill with the name `{{ filename }}` already exists in the database. What would you like to do?</p>
+        </div>
+        
+        <form action="{{ url_for('save_bill') }}" method="post" class="space-y-4">
+            <!-- Pass the original parsed items and other data as hidden fields -->
+            <input type="hidden" name="filename" value="{{ filename }}">
+            <input type="hidden" name="bill_date" value="{{ bill_date }}">
+            <input type="hidden" name="overwrite_id" value="{{ existing_id }}">
+
+            {% for item in parsed_items %}
+                <input type="hidden" name="item_description_{{ loop.index0 }}" value="{{ item.description }}">
+                <input type="hidden" name="item_price_{{ loop.index0 }}" value="{{ '%.2f' | format(item.price) }}">
+            {% endfor %}
+            
+            <!-- Hidden inputs for payer selection, assume single payer in this case for simplicity -->
+            <input type="hidden" name="payer_id" value="eser">
+
+            <div class="flex flex-col space-y-4">
+                <button type="submit" class="w-full px-6 py-3 bg-red-600 text-white font-medium rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition duration-150 ease-in-out">
+                    Overwrite Existing Bill
+                </button>
+                <a href="{{ url_for('index') }}" class="w-full px-6 py-3 bg-gray-400 text-white font-medium rounded-lg shadow-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-300 transition duration-150 ease-in-out">
+                    Cancel Upload
+                </a>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

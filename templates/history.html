@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bill Splitter - History</title>
+    <title>Bill History</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,60 +15,82 @@
         }
     </style>
 </head>
-<body class="flex flex-col items-center min-h-screen p-4">
-    <div class="w-full max-w-3xl bg-white p-8 rounded-2xl shadow-lg border border-gray-200 text-center">
-        <h1 class="text-3xl font-bold text-gray-800 mb-6">Bill History</h1>
-        
-        <div class="space-y-8">
-            {% for bill in bills_history %}
-            <div class="bg-gray-50 p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0">
-                <div class="text-left w-full sm:w-auto">
-                    <h2 class="text-xl font-bold text-gray-800 mb-1">
-                        <a href="{{ url_for('bill_details', receipt_id=bill.id) }}" class="text-indigo-600 hover:text-indigo-800 transition duration-150 ease-in-out">
-                            {{ bill.date }}
-                        </a>
-                    </h2>
-                    <p class="text-sm text-gray-600 mb-4">{{ bill.filename }}</p>
-                    
-                    <div class="overflow-hidden rounded-lg shadow-sm border border-gray-200 mt-2">
-                        <table class="w-full text-left text-sm text-gray-500">
-                            <thead class="text-xs text-gray-700 uppercase bg-gray-100">
-                                <tr>
-                                    <th scope="col" class="px-6 py-3">Category</th>
-                                    <th scope="col" class="px-6 py-3 text-right">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr class="bg-white border-b hover:bg-gray-50">
-                                    <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">Eser's Items</td>
-                                    <td class="px-6 py-4 text-right">€{{ "%.2f"|format(bill.eser_total) }}</td>
-                                </tr>
-                                <tr class="bg-white border-b hover:bg-gray-50">
-                                    <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">David's Items</td>
-                                    <td class="px-6 py-4 text-right">€{{ "%.2f"|format(bill.david_total) }}</td>
-                                </tr>
-                                <tr class="bg-white hover:bg-gray-50">
-                                    <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">Shared Items</td>
-                                    <td class="px-6 py-4 text-right">€{{ "%.2f"|format(bill.shared_total) }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <form action="{{ url_for('remove_bill') }}" method="post" class="flex-shrink-0 mt-4 sm:mt-0">
-                    <input type="hidden" name="receipt_id" value="{{ bill.id }}">
-                    <button type="submit" class="px-4 py-2 bg-red-600 text-white font-medium rounded-lg shadow-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition duration-150 ease-in-out">
-                        Remove
-                    </button>
-                </form>
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="w-full max-w-4xl bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800">Bill History</h1>
+            <a href="{{ url_for('index') }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">← Back to Upload</a>
+        </div>
+
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="mb-4">
+            {% for message in messages %}
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative" role="alert">
+                <span class="block sm:inline">{{ message }}</span>
             </div>
             {% endfor %}
         </div>
-        
-        <div class="mt-8">
-            <a href="{{ url_for('index') }}" class="inline-block w-full px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
-                Go back to start
-            </a>
+        {% endif %}
+        {% endwith %}
+
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Date
+                        </th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Filename
+                        </th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Eser
+                        </th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            David
+                        </th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Shared
+                        </th>
+                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Total
+                        </th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    {% for bill in bills_history %}
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            <a href="{{ url_for('bill_details', receipt_id=bill.id) }}" class="text-indigo-600 hover:text-indigo-900">
+                                {{ bill.date }}
+                            </a>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {{ bill.filename }}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {{ '%.2f' | format(bill.eser_total) }} €
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {{ '%.2f' | format(bill.david_total) }} €
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {{ '%.2f' | format(bill.shared_total) }} €
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                            {{ '%.2f' | format(bill.total_sum) }} €
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
+                            No bills found.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </body>
