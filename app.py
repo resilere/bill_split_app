@@ -1,18 +1,18 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, g
+from flask import Flask, render_template, request, redirect, url_for, flash, g, send_from_directory
 import os
 from dotenv import load_dotenv
 import pytesseract
 from PIL import Image
 import io
 import re
-from pdf2image import convert_from_bytes # You'll need poppler-utils on your system for this
+from pdf2image import convert_from_bytes 
 import sqlite3
+import uuid
 
 # Load environment variables from .env file
 load_dotenv()
-
 app = Flask(__name__)
-# Change for production!
+# The canvas environment provides the SECRET_KEY.
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'a_secret_key_for_dev')
 app.config['UPLOAD_FOLDER'] = 'uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -23,7 +23,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 DATABASE = 'billsplitter.db'
 
 def init_db():
-    """Initializes the SQLite database with necessary tables."""
+    """Initializes the SQLite database with necessary tables and default users."""
     with app.app_context():
         db = get_db()
         cursor = db.cursor()
@@ -38,6 +38,7 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 payer_id TEXT,
+                image_path TEXT, -- Added column to store snapshot path
                 FOREIGN KEY (payer_id) REFERENCES users(id)
             )
         ''')
@@ -77,16 +78,13 @@ def close_db(e=None):
 def parse_bill_text(text):
     """
     Parses bill text to extract items and their prices.
-    This version is more flexible and handles both comma and period decimal separators,
-    as well as tax codes that include an asterisk, like '*B', or a single letter like 'A'.
+    This version is more flexible and handles both comma and period decimal separators.
     """
     items = []
-    # This regex is now more flexible. It captures everything up to the price
-    # and then uses `.*?` to ignore any characters after the price.
+    # This regex captures everything up to the price and then ignores any characters after it.
     item_line_pattern = re.compile(r'(.+?)\s*(-?\d+[.,]\d{2})\s*.*?$')
 
     # Keywords to filter out non-item lines (like totals, taxes, etc.)
-    # These are in German for your German receipts.
     filter_keywords = ['gesamt', 'summe', 'zwischensumme', 'steuer', 'mwst', 'bar', 'bargeld', 'karte', 'zahlung', 'betrag', 'rueckgeld', 'saldo', 'rabatt', 'guthaben']
     
     for line in text.split('\n'):
@@ -94,7 +92,7 @@ def parse_bill_text(text):
         if not line:
             continue
         
-        # New logic: Stop parsing if 'summe' is found
+        # Stop parsing if 'summe' is found
         if 'summe' in line.lower():
             break
 
@@ -115,7 +113,7 @@ def parse_bill_text(text):
             price_str = match.group(2).replace(',', '.')
             try:
                 price = float(price_str)
-                items.append({'description': description, 'price': price})
+                items.append({'description': description, 'price': price, 'is_valid': True})
             except ValueError:
                 continue
     return items
@@ -132,6 +130,7 @@ def calculate_balances():
     
     # Get who paid for each receipt
     receipt_payers = {}
+    # CRITICAL: ensure fetchall() is called here
     for row in cursor.execute('SELECT id, payer_id FROM receipts').fetchall():
         receipt_payers[row['id']] = row['payer_id']
 
@@ -151,9 +150,10 @@ def calculate_balances():
     eser_paid_total = 0
     david_paid_total = 0
     
-    # Sum up how much each person paid across all receipts
+    # Sum up how much each person paid across all receipts (only for items that were not 'excluded' when saved)
     for receipt_id, payer_id in receipt_payers.items():
-        receipt_total = sum(item['price'] for item in items if item['receipt_id'] == receipt_id)
+        # Correctly calculate receipt total based on saved items
+        receipt_total = sum(item['price'] for item in items if item['receipt_id'] == receipt_id and item['assigned_to'] != 'excluded')
         if payer_id == 'eser':
             eser_paid_total += receipt_total
         elif payer_id == 'david':
@@ -164,16 +164,18 @@ def calculate_balances():
     david_responsibility = david_total_personal + (shared_total / 2)
 
     # Determine the final balance
-    eser_balance = eser_paid_total - eser_responsibility
-    david_balance = david_paid_total - david_responsibility
+    eser_net_balance = eser_paid_total - eser_responsibility
+    david_net_balance = david_paid_total - david_responsibility
 
-    # Return who owes whom
-    if eser_balance > 0:
-        return {'who_owes': 'David', 'amount': abs(eser_balance), 'to_whom': 'Eser'}
-    elif david_balance > 0:
-        return {'who_owes': 'Eser', 'amount': abs(david_balance), 'to_whom': 'David'}
+    # Who owes whom
+    if eser_net_balance > david_net_balance: # Eser paid more than David, so David owes Eser
+        amount_owed = eser_net_balance - david_net_balance
+        return {'who_owes': 'david', 'to_whom': 'eser', 'amount': amount_owed}
+    elif david_net_balance > eser_net_balance: # David paid more than Eser, so Eser owes David
+        amount_owed = david_net_balance - eser_net_balance
+        return {'who_owes': 'eser', 'to_whom': 'david', 'amount': amount_owed}
     else:
-        return {'who_owes': 'Nobody', 'amount': 0, 'to_whom': 'Nobody'}
+        return {'who_owes': 'Nobody', 'to_whom': 'Nobody', 'amount': 0} # Balanced
 
 @app.route('/')
 def index():
@@ -193,48 +195,58 @@ def upload_bill():
     if file:
         file_bytes = file.read()
         file_extension = file.filename.split('.')[-1].lower()
-        
+        unique_filename = f"{uuid.uuid4()}"
+        image_path_for_display = None
         extracted_text = ""
-        if file_extension in ['png', 'jpg', 'jpeg', 'gif']:
-            try:
+        
+        try:
+            if file_extension in ['png', 'jpg', 'jpeg', 'gif']:
                 img = Image.open(io.BytesIO(file_bytes))
+                image_path_for_display = f"{unique_filename}.png"
+                img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
                 extracted_text = pytesseract.image_to_string(img)
-            except Exception as e:
-                flash(f"Error processing image: {e}")
-                print(f"Error processing image: {e}")
-        elif file_extension == 'pdf':
-            try:
+            elif file_extension == 'pdf':
+                # pdf2image conversion for display snapshot and OCR
                 images = convert_from_bytes(file_bytes)
-                for i, img in enumerate(images):
-                    extracted_text += pytesseract.image_to_string(img) + "\n--PAGE BREAK--\n"
-            except Exception as e:
-                flash(f"Error processing PDF: {e}. Make sure poppler-utils is installed.")
-                print(f"Error processing PDF: {e}. Make sure poppler-utils is installed.")
-        else:
-            flash('Unsupported file type.')
-            print('Unsupported file type.')
+                if images:
+                    # Save first page as jpeg for display snapshot
+                    img = images[0]
+                    image_path_for_display = f"{unique_filename}.jpeg"
+                    img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display), 'JPEG')
+                    
+                    # Process all pages for OCR
+                    for i, page_img in enumerate(images):
+                        extracted_text += pytesseract.image_to_string(page_img) + "\n--PAGE BREAK--\n"
+                else:
+                    flash("Failed to convert PDF to image.")
+                    return redirect(request.url)
+            else:
+                flash('Unsupported file type.')
+                return redirect(request.url)
+        except Exception as e:
+            flash(f"Error processing file: {e}")
+            print(f"Error processing file: {e}")
             return redirect(request.url)
-
-        # --- DEBUGGING PRINTS ---
-        print("\n--- Tesseract Extracted Text ---")
-        print(extracted_text)
-        print("------------------------------\n")
 
         parsed_items = parse_bill_text(extracted_text)
 
-        print("\n--- Parsed Items ---")
-        print(parsed_items)
-        print("--------------------\n")
-        
         # Calculate a total sum to display on the result page
         total_sum = sum(item['price'] for item in parsed_items)
 
-        # Render the bill details page with the parsed items
-        return render_template('bill_details.html', 
+        # Store the image path in a session or pass it hidden if needed for later, 
+        # but for now we just pass it to the result template.
+        return render_template('bill_details.html',
                                parsed_items=parsed_items, 
                                filename=file.filename,
-                               total_sum=total_sum)
+                               total_sum=total_sum,
+                               image_path=url_for('uploaded_file', filename=image_path_for_display))
     return redirect(url_for('index'))
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    """Securely serves uploaded files from the UPLOAD_FOLDER."""
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
 
 @app.route('/save_details', methods=['POST'])
 def save_details():
@@ -244,7 +256,7 @@ def save_details():
         cursor = db.cursor()
 
         payer_id = request.form['payer_id']
-
+        
         # Insert the new receipt and get the ID
         cursor.execute('INSERT INTO receipts (payer_id) VALUES (?)', (payer_id,))
         receipt_id = cursor.lastrowid
@@ -269,46 +281,53 @@ def save_details():
 
         db.commit()
         flash('Bill saved successfully!')
-        # Redirect to the confirmation page
-        return redirect(url_for('confirm'))
+        # Redirect to the balances page
+        return redirect(url_for('balances'))
 
     except Exception as e:
         db.rollback()
         flash(f'An error occurred: {e}')
+        print(f'Error saving details: {e}')
         return redirect(url_for('index'))
-
-@app.route('/confirm')
-def confirm():
-    """Displays a simple confirmation message."""
-    return render_template('confirm.html')
 
 @app.route('/balances')
 def balances():
     """Displays the final calculated balances."""
-    balance_result = calculate_balances()
-    return render_template('balances.html', balance=balance_result)
+    balances_data = calculate_balances()
+    return render_template('balances.html', balance=balances_data)
+
+def get_bill_history():
+    db = get_db()
+    cursor = db.cursor()
+
+    receipts = cursor.execute(
+        'SELECT id, filename, bill_date, payer_id FROM receipts ORDER BY bill_date DESC'
+    ).fetchall()
+    
+    bills_history = []
+    
+    for receipt in receipts:
+        receipt_id = receipt['id']
+        items = cursor.execute(
+            'SELECT description, price, assigned_to FROM items WHERE receipt_id = ?', 
+            (receipt_id,)
+        ).fetchall()
+        
+        bills_history.append({
+            'id': receipt['id'],
+            'filename': receipt['filename'],
+            'date': receipt['bill_date'],
+            'payer': receipt['payer_id'],
+            'items': items
+        })
+        
+    return bills_history
+
 
 @app.route('/history')
 def history():
-    """Displays a list of all past receipts."""
-    db = get_db()
-    cursor = db.cursor()
-    # Fetch all receipts and their items
-    receipts_db = cursor.execute('SELECT * FROM receipts ORDER BY upload_date DESC').fetchall()
-    
-    # Create a list of dictionaries to pass to the template
-    all_receipts = []
-    for receipt in receipts_db:
-        items = cursor.execute('SELECT * FROM items WHERE receipt_id = ?', (receipt['id'],)).fetchall()
-        receipt_dict = {
-            'id': receipt['id'],
-            'payer': receipt['payer_id'],
-            'date': receipt['upload_date'],
-            'items': items
-        }
-        all_receipts.append(receipt_dict)
-
-    return render_template('history.html', receipts=all_receipts)
+    receipts = get_bill_history()
+    return render_template("history.html", receipts=receipts)
 
 
 # Call init_db() when the app starts

@@ -1,86 +1,71 @@
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bill Splitter Result</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
-        }
-    </style>
-</head>
-<body class="flex flex-col items-center justify-center min-h-screen p-4">
-    <div class="w-full max-w-2xl bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
-        <div class="mb-6">
-            <h1 class="text-3xl font-bold text-gray-800">Review and Assign Items</h1>
-            <p class="mt-2 text-gray-600">File: <span class="font-medium text-gray-800">{{ filename }}</span></p>
-            <p class="mt-2 text-gray-600">Total Sum: <span class="font-medium text-gray-800">{{ '%.2f' | format(total_sum) }} €</span></p>
-        </div>
-        
-        <form action="{{ url_for('save_details') }}" method="post">
-            <input type="hidden" name="filename" value="{{ filename }}">
-            <input type="hidden" name="bill_date" value="{{ bill_date }}">
+{% extends "base.html" %}
+{% block title %}Assign Bill Items{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 5px;">Review & Assign Items</h1>
+<p style="margin-bottom: 20px; color: #555;">File uploaded: {{ filename }} | Estimated Total: €{{ "%.2f"|format(total_sum) }}</p>
 
-            <!-- Payer selection -->
-            <div class="mb-6">
-                <label class="block text-gray-700 text-lg font-medium mb-2">Who paid for this bill?</label>
-                <div class="flex items-center space-x-4">
-                    <div class="flex items-center">
-                        <input id="payer-eser" name="payer_id" type="radio" value="eser" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500" required>
-                        <label for="payer-eser" class="ml-2 block text-sm font-medium text-gray-700">Eser</label>
-                    </div>
-                    <div class="flex items-center">
-                        <input id="payer-david" name="payer_id" type="radio" value="david" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
-                        <label for="payer-david" class="ml-2 block text-sm font-medium text-gray-700">David</label>
-                    </div>
-                </div>
-            </div>
-
-            <div class="space-y-4">
-                {% for item in parsed_items %}
-                <div class="flex items-center bg-gray-50 p-4 rounded-lg shadow-sm">
-                    <div class="flex-grow">
-                        <input type="text" name="item_description_{{ loop.index0 }}" value="{{ item.description }}" class="w-full text-gray-800 font-medium bg-transparent border-none focus:outline-none">
-                        <input type="hidden" name="item_price_{{ loop.index0 }}" value="{{ '%.2f' | format(item.price) }}">
-                    </div>
-                    <div class="flex-shrink-0 text-right">
-                        <span class="font-bold text-gray-900">{{ '%.2f' | format(item.price) }} €</span>
-                    </div>
-                    
-                    <div class="ml-4 flex-shrink-0 flex items-center space-x-4">
-                        <div class="flex items-center">
-                            <input id="item-eser-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="eser" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
-                            <label for="item-eser-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">Eser</label>
-                        </div>
-                        <div class="flex items-center">
-                            <input id="item-david-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="david" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
-                            <label for="item-david-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">David</label>
-                        </div>
-                        <div class="flex items-center">
-                            <input id="item-shared-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="shared" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500" checked>
-                            <label for="item-shared-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">Shared</label>
-                        </div>
-                        <div class="flex items-center">
-                            <input id="item-excluded-{{ loop.index0 }}" type="radio" name="assigned_to_{{ loop.index0 }}" value="excluded" class="h-4 w-4 text-indigo-600 border-gray-300 focus:ring-indigo-500">
-                            <label for="item-excluded-{{ loop.index0 }}" class="ml-2 block text-sm font-medium text-gray-700">Exclude</label>
-                        </div>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
+<div style="display: flex; gap: 30px;">
+    <div style="flex: 1; min-width: 300px;">
+        <h2 style="margin-top: 0; border-bottom: none; padding-bottom: 0;">Original Receipt Snapshot</h2>
+        {% if image_path %}
+            <img src="{{ image_path }}" alt="Receipt Snapshot" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
+        {% else %}
+            <p>No image snapshot available.</p>
+        {% endif %}
+    </div>
+    
+    <div style="flex: 2;">
+        <h2 style="margin-top: 0; border-bottom: none; padding-bottom: 0;">Assignment Form</h2>
+        <form method="POST" action="{{ url_for('save_details') }}">
             
-            <div class="mt-8 text-center">
-                <button type="submit" class="w-full px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
-                    Save Bill and Go to Balances
-                </button>
+            <!-- Payer Selection -->
+            <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background-color: #f9f9f9;">
+                <label for="payer_id" style="font-weight: bold; display: block; margin-bottom: 10px; color: #1a73e8;">Who Paid the Bill?</label>
+                <select name="payer_id" id="payer_id" required 
+                        style="padding: 10px; border: 1px solid #ccc; border-radius: 4px; width: 100%;">
+                    <option value="eser">Eser</option>
+                    <option value="david">David</option>
+                </select>
             </div>
+
+            <!-- Item Assignment Table -->
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background-color: #e0e0e0;">
+                        <th style="padding: 10px; text-align: left;">Item Description</th>
+                        <th style="padding: 10px; text-align: right; width: 80px;">Price (€)</th>
+                        <th style="padding: 10px; text-align: center; width: 250px;">Assign To</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in parsed_items %}
+                    <tr style="border-bottom: 1px solid #eee;">
+                        <td style="padding: 10px;">
+                            <input type="text" name="item_description_{{ loop.index0 }}" value="{{ item.description }}" readonly 
+                                   style="width: 95%; border: none; background: transparent;">
+                        </td>
+                        <td style="padding: 10px; text-align: right;">
+                            <input type="number" step="0.01" name="item_price_{{ loop.index0 }}" value="{{ '%.2f'|format(item.price) }}" required 
+                                   style="width: 70px; text-align: right; border: 1px solid #ccc; border-radius: 4px; padding: 5px;">
+                        </td>
+                        <td style="padding: 10px; text-align: center;">
+                            <div style="display: flex; justify-content: space-around; gap: 5px;">
+                                <label><input type="radio" name="assigned_to_{{ loop.index0 }}" value="eser" checked> Eser</label>
+                                <label><input type="radio" name="assigned_to_{{ loop.index0 }}" value="david"> David</label>
+                                <label><input type="radio" name="assigned_to_{{ loop.index0 }}" value="shared"> Shared</label>
+                                <label><input type="radio" name="assigned_to_{{ loop.index0 }}" value="excluded" style="color: #f44336;"> Exclude</label>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <button type="submit" style="margin-top: 30px; padding: 12px 25px; background-color: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1.1em;">
+                Save and Calculate Balances
+            </button>
         </form>
     </div>
-</body>
-</html>
+</div>
+
+{% endblock %}

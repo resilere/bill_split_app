@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Bill Splitter{% endblock %}</title>
+<style>
+body {
+font-family: 'Inter', sans-serif;
+margin: 0;
+padding: 0;
+background-color: #f4f7f6;
+color: #333;
+}
+.navbar {
+background-color: #1a73e8;
+padding: 15px 30px;
+box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+.navbar a {
+color: white;
+text-decoration: none;
+margin-right: 20px;
+font-weight: 500;
+padding: 5px 10px;
+border-radius: 4px;
+transition: background-color 0.3s;
+}
+.navbar a:hover {
+background-color: #1558b0;
+}
+.container {
+max-width: 1200px;
+margin: 30px auto;
+padding: 20px;
+background: #ffffff;
+border-radius: 12px;
+box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.flash {
+padding: 15px;
+margin-bottom: 20px;
+border-radius: 8px;
+font-weight: bold;
+}
+.flash.success {
+background-color: #d4edda;
+color: #155724;
+border: 1px solid #c3e6cb;
+}
+h1 {
+color: #2c3e50;
+border-bottom: 2px solid #e0e0e0;
+padding-bottom: 10px;
+margin-bottom: 20px;
+}
+</style>
+</head>
+<body>
+<div class="navbar">
+<a href="{{ url_for('index') }}">Upload New Bill</a>
+<a href="{{ url_for('balances') }}">View Balances</a>
+<a href="{{ url_for('history') }}">History</a>
+</div>
+
+<div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">
+            {{ message }}
+        </div>
+        {% endfor %}
+    {% endif %}
+    {% endwith %}
+    
+    {% block content %}{% endblock %}
+</div>
+
+</body>
+</html>
