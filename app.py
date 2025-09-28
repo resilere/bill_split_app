@@ -155,35 +155,34 @@ def calculate_balances_detailed():
     eser_responsibility = eser_total_personal + (shared_total / 2)
     david_responsibility = david_total_personal + (shared_total / 2)
 
-    # Net balance
-    eser_net_balance = eser_paid_total - eser_responsibility
-    david_net_balance = david_paid_total - david_responsibility
+    eser_net = eser_paid_total - eser_responsibility
+    david_net = david_paid_total - david_responsibility
 
-    # Who owes whom
-    if eser_net_balance > david_net_balance:
-        who_owes, to_whom = 'David', 'Eser'
-        amount_owed = eser_net_balance - david_net_balance
-    elif david_net_balance > eser_net_balance:
-        who_owes, to_whom = 'Eser', 'David'
-        amount_owed = david_net_balance - eser_net_balance
+    # Only one "owed amount"
+    if eser_net > david_net:  # David owes Eser
+        amount = eser_net
+        balance = {'who_owes': 'david', 'to_whom': 'eser', 'amount': amount}
+    elif david_net > eser_net:  # Eser owes David
+        amount = david_net
+        balance = {'who_owes': 'eser', 'to_whom': 'david', 'amount': amount}
     else:
-        who_owes, to_whom = 'Nobody', 'Nobody'
-        amount_owed = 0
+        balance = {'who_owes': 'Nobody', 'to_whom': 'Nobody', 'amount': 0}
+
 
     return {
-        'eser_total_personal': eser_total_personal,
-        'david_total_personal': david_total_personal,
-        'shared_total': shared_total,
-        'eser_paid_total': eser_paid_total,
-        'david_paid_total': david_paid_total,
-        'eser_responsibility': eser_responsibility,
-        'david_responsibility': david_responsibility,
-        'eser_net_balance': eser_net_balance,
-        'david_net_balance': david_net_balance,
-        'who_owes': who_owes,
-        'to_whom': to_whom,
-        'amount': amount_owed
-    }
+    'eser_total_personal': eser_total_personal,
+    'david_total_personal': david_total_personal,
+    'shared_total': shared_total,
+    'eser_paid_total': eser_paid_total,
+    'david_paid_total': david_paid_total,
+    'eser_responsibility': eser_responsibility,
+    'david_responsibility': david_responsibility,
+    # Only one net balance difference is needed to avoid double counting
+    'who_owes': balance['who_owes'],
+    'to_whom': balance['to_whom'],
+    'amount': balance['amount']
+}
+
 
 
 @app.route('/')
@@ -401,6 +400,24 @@ def manual_payment():
             return redirect(url_for('manual_payment'))
 
     return render_template('manual_payment.html')
+@app.route('/remove_receipt', methods=['POST'])
+def remove_receipt():
+    try:
+        receipt_id = request.form.get('receipt_id')
+        db = get_db()
+        cursor = db.cursor()
+
+        # Delete all items first, then the receipt
+        cursor.execute('DELETE FROM items WHERE receipt_id = ?', (receipt_id,))
+        cursor.execute('DELETE FROM receipts WHERE id = ?', (receipt_id,))
+        db.commit()
+
+        flash(f'Receipt #{receipt_id} removed successfully!')
+    except Exception as e:
+        db.rollback()
+        flash(f'Error removing receipt: {e}')
+
+    return redirect(url_for('history'))
 
 
 
