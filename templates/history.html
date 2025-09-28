@@ -1,97 +1,48 @@
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bill History</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
-        }
-    </style>
-</head>
-<body class="flex flex-col items-center justify-center min-h-screen p-4">
-    <div class="w-full max-w-4xl bg-white p-8 rounded-2xl shadow-lg border border-gray-200">
-        <div class="flex justify-between items-center mb-6">
-            <h1 class="text-3xl font-bold text-gray-800">Bill History</h1>
-            <a href="{{ url_for('index') }}" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">← Back to Upload</a>
-        </div>
+{% extends "base.html" %}
+{% block title %}Receipt History{% endblock %}
+{% block content %}
+<h1>Receipt History</h1>
 
-        {% with messages = get_flashed_messages() %}
-        {% if messages %}
-        <div class="mb-4">
-            {% for message in messages %}
-            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative" role="alert">
-                <span class="block sm:inline">{{ message }}</span>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-        {% endwith %}
+{% if receipts %}
+    {% for receipt in receipts %}
+    <div style="border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 8px; background-color: #fafafa;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+           <h3 style="margin: 0; color: #1a73e8;">Receipt #{{ receipt.id }} ({{ receipt.date }})</h3>
+            <p style="margin: 0; font-weight: bold;">Paid by: <span style="text-transform: capitalize;">{{ receipt.payer }}</span></p>
 
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Date
-                        </th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Filename
-                        </th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Eser
-                        </th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            David
-                        </th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Shared
-                        </th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Total
-                        </th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    {% for bill in bills_history %}
-                    <tr>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            <a href="{{ url_for('bill_details', receipt_id=bill.id) }}" class="text-indigo-600 hover:text-indigo-900">
-                                {{ bill.date }}
-                            </a>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {{ bill.filename }}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {{ '%.2f' | format(bill.eser_total) }} €
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {{ '%.2f' | format(bill.david_total) }} €
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {{ '%.2f' | format(bill.shared_total) }} €
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                            {{ '%.2f' | format(bill.total_sum) }} €
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="6" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-center">
-                            No bills found.
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
         </div>
+        
+        <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background-color: #e0e0e0;">
+                    <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Item</th>
+                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Price</th>
+                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Assigned To</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set receipt_total = 0 %}
+                {% for item in receipt["items"] %}
+                <tr>
+                    <td style="padding: 8px 10px; border-bottom: 1px solid #eee;">{{ item.description }}</td>
+                    <td style="padding: 8px 10px; text-align: right; border-bottom: 1px solid #eee;">€{{ "%.2f"|format(item.price) }}</td>
+                    <td style="padding: 8px 10px; text-align: right; border-bottom: 1px solid #eee; text-transform: capitalize;">{{ item.assigned_to }}</td>
+                </tr>
+                {% set receipt_total = receipt_total + item.price %}
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="3" style="padding: 10px; text-align: right; font-weight: bold; background-color: #f0f0f0; border-top: 2px solid #ddd;">
+                        Receipt Total: €{{ "%.2f"|format(receipt_total) }}
+                    </td>
+                </tr>
+            </tfoot>
+        </table>
     </div>
-</body>
-</html>
+    {% endfor %}
+{% else %}
+    <p>No receipts have been uploaded yet. Start by <a href="{{ url_for('index') }}">uploading a new bill</a>!</p>
+{% endif %}
+
+{% endblock %}
