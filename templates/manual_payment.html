@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Manual Settlement{% endblock %}
+{% block content %}
+<h1>Add Manual Payment / Settlement</h1>
+
+<form method="POST">
+    <label for="payer">Payer:</label>
+    <select name="payer" id="payer" required>
+        <option value="eser">Eser</option>
+        <option value="david">David</option>
+    </select><br><br>
+
+    <label for="payee">Assign To / Payee:</label>
+    <select name="payee" id="payee" required>
+        <option value="eser">Eser</option>
+        <option value="david">David</option>
+        <option value="shared">Shared</option>
+    </select><br><br>
+
+    <label for="amount">Amount (€):</label>
+    <input type="number" name="amount" id="amount" step="0.01" required><br><br>
+
+    <label for="description">Description:</label>
+    <input type="text" name="description" id="description" placeholder="e.g., 'Paid back lunch'" /><br><br>
+
+    <label for="payment_date">Date of Payment:</label>
+    <input type="date" id="payment_date" name="payment_date" required
+           style="padding:5px; border:1px solid #ccc; border-radius:4px;"><br><br>
+
+    <button type="submit">Record Payment</button>
+</form>
+{% endblock %}

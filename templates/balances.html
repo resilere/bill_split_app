@@ -14,6 +14,40 @@
 </div>
 {% endif %}
 
+<h2 style="margin-top: 40px;">Detailed Breakdown</h2>
+<table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+    <tr style="background-color: #f0f0f0; font-weight: bold;">
+        <th style="padding: 10px; text-align: left;">Category</th>
+        <th style="padding: 10px; text-align: right;">Eser (€)</th>
+        <th style="padding: 10px; text-align: right;">David (€)</th>
+    </tr>
+    <tr>
+        <td style="padding: 8px;">Personal Items</td>
+        <td style="padding: 8px; text-align: right;">{{ balance.eser_total_personal }}</td>
+        <td style="padding: 8px; text-align: right;">{{ balance.david_total_personal }}</td>
+    </tr>
+    <tr>
+        <td style="padding: 8px;">Shared Items (half each)</td>
+        <td style="padding: 8px; text-align: right;">{{ balance.shared_total / 2 }}</td>
+        <td style="padding: 8px; text-align: right;">{{ balance.shared_total / 2 }}</td>
+    </tr>
+    <tr>
+        <td style="padding: 8px;">Total Responsibility</td>
+        <td style="padding: 8px; text-align: right;">{{ balance.eser_responsibility }}</td>
+        <td style="padding: 8px; text-align: right;">{{ balance.david_responsibility }}</td>
+    </tr>
+    <tr>
+        <td style="padding: 8px;">Amount Paid</td>
+        <td style="padding: 8px; text-align: right;">{{ balance.eser_paid_total }}</td>
+        <td style="padding: 8px; text-align: right;">{{ balance.david_paid_total }}</td>
+    </tr>
+    <tr style="font-weight: bold; background-color: #fafafa;">
+        <td style="padding: 8px;">Net Balance</td>
+        <td style="padding: 8px; text-align: right;">{{ balance.eser_net_balance }}</td>
+        <td style="padding: 8px; text-align: right;">{{ balance.david_net_balance }}</td>
+    </tr>
+</table>
+
 <h2 style="margin-top: 40px;">What's Next?</h2>
 <div style="display: flex; gap: 15px;">
     <a href="{{ url_for('history') }}" style="background-color: #ff9800; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">
