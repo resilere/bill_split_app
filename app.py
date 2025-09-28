@@ -256,33 +256,50 @@ def save_details():
         cursor = db.cursor()
 
         payer_id = request.form['payer_id']
-        
-        # Insert the new receipt and get the ID
-        cursor.execute('INSERT INTO receipts (payer_id) VALUES (?)', (payer_id,))
+        filename = request.form.get('filename')  # Make sure your form passes this
+        bill_date = request.form.get('bill_date')  # Also passed from form
+
+        # Insert the new receipt with filename and bill_date
+        cursor.execute(
+            'INSERT INTO receipts (payer_id, filename, bill_date) VALUES (?, ?, ?)',
+            (payer_id, filename, bill_date)
+        )
         receipt_id = cursor.lastrowid
+
+        total = 0.0  # Initialize total sum
 
         # Loop through all the submitted form data for items
         for key, value in request.form.items():
             if key.startswith('assigned_to_'):
-                # Extract the index from the key (e.g., 'assigned_to_0' -> '0')
                 index_str = key.split('_')[-1]
-                
-                # Check the value of the radio button. If it's not 'excluded', save the item.
-                if value != 'excluded':
-                    description = request.form.get(f'item_description_{index_str}')
-                    price = request.form.get(f'item_price_{index_str}')
-                    assigned_to = value
+                assigned_to = value
 
-                    if description and price and assigned_to:
+                # Only save items that are not excluded
+                if assigned_to != 'excluded':
+                    description = request.form.get(f'item_description_{index_str}')
+                    price_str = request.form.get(f'item_price_{index_str}')
+
+                    if description and price_str:
+                        price = float(price_str)
+                        total += price
                         cursor.execute(
                             'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (?, ?, ?, ?)',
-                            (receipt_id, description, float(price), assigned_to)
+                            (receipt_id, description, price, assigned_to)
                         )
+
+        # Update the total in the receipts table
+        cursor.execute('UPDATE receipts SET total = ? WHERE id = ?', (total, receipt_id))
 
         db.commit()
         flash('Bill saved successfully!')
-        # Redirect to the balances page
         return redirect(url_for('balances'))
+
+    except Exception as e:
+        db.rollback()
+        flash(f'An error occurred: {e}')
+        print(f"Error saving receipt: {e}")
+        return redirect(url_for('index'))
+
 
     except Exception as e:
         db.rollback()
@@ -300,25 +317,26 @@ def get_bill_history():
     db = get_db()
     cursor = db.cursor()
 
-    receipts = cursor.execute(
-        'SELECT id, filename, bill_date, payer_id FROM receipts ORDER BY bill_date DESC'
-    ).fetchall()
+    receipts = cursor.execute('SELECT id, upload_date, payer_id, filename, bill_date, total FROM receipts ORDER BY bill_date DESC').fetchall()
+
     
     bills_history = []
     
     for receipt in receipts:
         receipt_id = receipt['id']
-        items = cursor.execute(
-            'SELECT description, price, assigned_to FROM items WHERE receipt_id = ?', 
-            (receipt_id,)
-        ).fetchall()
+        items = [{'description': row['description'], 'assigned_to': row['assigned_to'], 'price': float(row['price'])} for row in cursor.execute(
+                'SELECT description, price, assigned_to FROM items WHERE receipt_id = ?', 
+                (receipt_id,)
+            ).fetchall()]
+
         
         bills_history.append({
             'id': receipt['id'],
             'filename': receipt['filename'],
             'date': receipt['bill_date'],
             'payer': receipt['payer_id'],
-            'items': items
+            'items': items,
+            'total': float(receipt['total'])
         })
         
     return bills_history

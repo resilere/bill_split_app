@@ -28,13 +28,13 @@
                     <td style="padding: 8px 10px; text-align: right; border-bottom: 1px solid #eee;">€{{ "%.2f"|format(item.price) }}</td>
                     <td style="padding: 8px 10px; text-align: right; border-bottom: 1px solid #eee; text-transform: capitalize;">{{ item.assigned_to }}</td>
                 </tr>
-                {% set receipt_total = receipt_total + item.price %}
+                
                 {% endfor %}
             </tbody>
             <tfoot>
                 <tr>
                     <td colspan="3" style="padding: 10px; text-align: right; font-weight: bold; background-color: #f0f0f0; border-top: 2px solid #ddd;">
-                        Receipt Total: €{{ "%.2f"|format(receipt_total) }}
+                        Receipt Total:   €{{ "%.2f"|format(receipt['total']) }}
                     </td>
                 </tr>
             </tfoot>
