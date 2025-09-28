@@ -33,7 +33,10 @@
             </tbody>
             <tfoot>
                 <tr>
-                    <td colspan="3" style="padding: 10px; text-align: right; font-weight: bold; background-color: #f0f0f0; border-top: 2px solid #ddd;">
+                     <td colspan="3" style="padding: 10px; text-align: right; font-weight: bold; background-color: #f0f0f0; border-top: 2px solid #ddd;">
+                        Eser: €{{ "%.2f"|format(receipt.eser_total) }}, 
+                        David: €{{ "%.2f"|format(receipt.david_total) }}, 
+                        Shared: €{{ "%.2f"|format(receipt.shared_total) }}, 
                         Receipt Total:   €{{ "%.2f"|format(receipt['total']) }}
                     </td>
                 </tr>

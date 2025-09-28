@@ -8,6 +8,7 @@ import re
 from pdf2image import convert_from_bytes 
 import sqlite3
 import uuid
+from datetime import datetime
 
 # Load environment variables from .env file
 load_dotenv()
@@ -118,64 +119,72 @@ def parse_bill_text(text):
                 continue
     return items
 
-def calculate_balances():
-    """
-    Calculates the final balances between Eser and David based on all saved receipts.
-    """
+def calculate_balances_detailed():
     db = get_db()
     cursor = db.cursor()
 
-    # Get all items from the database
+    # Get all items
     items = cursor.execute('SELECT price, assigned_to, receipt_id FROM items').fetchall()
     
     # Get who paid for each receipt
-    receipt_payers = {}
-    # CRITICAL: ensure fetchall() is called here
-    for row in cursor.execute('SELECT id, payer_id FROM receipts').fetchall():
-        receipt_payers[row['id']] = row['payer_id']
+    receipt_payers = {row['id']: row['payer_id'] for row in cursor.execute('SELECT id, payer_id FROM receipts')}
 
-    eser_total_personal = 0
-    david_total_personal = 0
-    shared_total = 0
+    # Totals for each person
+    eser_total_personal = sum(item['price'] for item in items if item['assigned_to'] == 'eser')
+    david_total_personal = sum(item['price'] for item in items if item['assigned_to'] == 'david')
+    shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
 
-    # Sum up individual and shared item costs
-    for item in items:
-        if item['assigned_to'] == 'eser':
-            eser_total_personal += item['price']
-        elif item['assigned_to'] == 'david':
-            david_total_personal += item['price']
-        elif item['assigned_to'] == 'shared':
-            shared_total += item['price']
-    
+    # Total actually paid by each
     eser_paid_total = 0
     david_paid_total = 0
-    
-    # Sum up how much each person paid across all receipts (only for items that were not 'excluded' when saved)
     for receipt_id, payer_id in receipt_payers.items():
-        # Correctly calculate receipt total based on saved items
-        receipt_total = sum(item['price'] for item in items if item['receipt_id'] == receipt_id and item['assigned_to'] != 'excluded')
+        receipt_total = sum(
+            item['price'] 
+            for item in items 
+            if item['receipt_id'] == receipt_id and item['assigned_to'] != 'excluded'
+        )
         if payer_id == 'eser':
             eser_paid_total += receipt_total
         elif payer_id == 'david':
             david_paid_total += receipt_total
+        elif payer_id == 'both':
+            eser_paid_total += receipt_total / 2
+            david_paid_total += receipt_total / 2
 
-    # Calculate net responsibilities
+    # Responsibility for each person
     eser_responsibility = eser_total_personal + (shared_total / 2)
     david_responsibility = david_total_personal + (shared_total / 2)
 
-    # Determine the final balance
+    # Net balance
     eser_net_balance = eser_paid_total - eser_responsibility
     david_net_balance = david_paid_total - david_responsibility
 
     # Who owes whom
-    if eser_net_balance > david_net_balance: # Eser paid more than David, so David owes Eser
+    if eser_net_balance > david_net_balance:
+        who_owes, to_whom = 'David', 'Eser'
         amount_owed = eser_net_balance - david_net_balance
-        return {'who_owes': 'david', 'to_whom': 'eser', 'amount': amount_owed}
-    elif david_net_balance > eser_net_balance: # David paid more than Eser, so Eser owes David
+    elif david_net_balance > eser_net_balance:
+        who_owes, to_whom = 'Eser', 'David'
         amount_owed = david_net_balance - eser_net_balance
-        return {'who_owes': 'eser', 'to_whom': 'david', 'amount': amount_owed}
     else:
-        return {'who_owes': 'Nobody', 'to_whom': 'Nobody', 'amount': 0} # Balanced
+        who_owes, to_whom = 'Nobody', 'Nobody'
+        amount_owed = 0
+
+    return {
+        'eser_total_personal': eser_total_personal,
+        'david_total_personal': david_total_personal,
+        'shared_total': shared_total,
+        'eser_paid_total': eser_paid_total,
+        'david_paid_total': david_paid_total,
+        'eser_responsibility': eser_responsibility,
+        'david_responsibility': david_responsibility,
+        'eser_net_balance': eser_net_balance,
+        'david_net_balance': david_net_balance,
+        'who_owes': who_owes,
+        'to_whom': to_whom,
+        'amount': amount_owed
+    }
+
 
 @app.route('/')
 def index():
@@ -197,6 +206,9 @@ def upload_bill():
         file_extension = file.filename.split('.')[-1].lower()
         unique_filename = f"{uuid.uuid4()}"
         image_path_for_display = None
+         # Extract bill date from filename
+        date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
+        bill_date = date_match.group(0) if date_match else 'Unknown Date'
         extracted_text = ""
         
         try:
@@ -239,6 +251,7 @@ def upload_bill():
                                parsed_items=parsed_items, 
                                filename=file.filename,
                                total_sum=total_sum,
+                               bill_date=bill_date,
                                image_path=url_for('uploaded_file', filename=image_path_for_display))
     return redirect(url_for('index'))
 
@@ -310,7 +323,7 @@ def save_details():
 @app.route('/balances')
 def balances():
     """Displays the final calculated balances."""
-    balances_data = calculate_balances()
+    balances_data = calculate_balances_detailed()
     return render_template('balances.html', balance=balances_data)
 
 def get_bill_history():
@@ -328,7 +341,9 @@ def get_bill_history():
                 'SELECT description, price, assigned_to FROM items WHERE receipt_id = ?', 
                 (receipt_id,)
             ).fetchall()]
-
+        eser_total = sum(item['price'] for item in items if item['assigned_to'] == 'eser')
+        david_total = sum(item['price'] for item in items if item['assigned_to'] == 'david')
+        shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
         
         bills_history.append({
             'id': receipt['id'],
@@ -336,6 +351,9 @@ def get_bill_history():
             'date': receipt['bill_date'],
             'payer': receipt['payer_id'],
             'items': items,
+            'eser_total': round(eser_total, 2),
+            'david_total': round(david_total, 2),
+            'shared_total': round(shared_total, 2),
             'total': float(receipt['total'])
         })
         
@@ -346,6 +364,44 @@ def get_bill_history():
 def history():
     receipts = get_bill_history()
     return render_template("history.html", receipts=receipts)
+@app.route('/manual_payment', methods=['GET', 'POST'])
+
+
+def manual_payment():
+    if request.method == 'POST':
+        db = get_db()
+        cursor = db.cursor()
+        try:
+            payer = request.form['payer']
+            payee = request.form['payee']
+            amount = float(request.form['amount'])
+            description = request.form.get('description', 'Manual settlement')
+            payment_date_str = request.form.get('payment_date')  # YYYY-MM-DD
+            
+            # Insert a new receipt using the selected date
+            cursor.execute(
+                'INSERT INTO receipts (payer_id, filename, bill_date) VALUES (?, ?, ?)',
+                (payer, f"Manual_{description}", payment_date_str)
+            )
+            receipt_id = cursor.lastrowid
+
+            # Insert the corresponding item
+            cursor.execute(
+                'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (?, ?, ?, ?)',
+                (receipt_id, description, amount, payee)
+            )
+
+            db.commit()
+            flash('Manual payment recorded successfully!')
+            return redirect(url_for('history'))
+
+        except Exception as e:
+            db.rollback()
+            flash(f"Error recording manual payment: {e}")
+            return redirect(url_for('manual_payment'))
+
+    return render_template('manual_payment.html')
+
 
 
 # Call init_db() when the app starts
