@@ -1,0 +1,24 @@
+# --- Core dependencies ---
+Flask==3.0.3
+gunicorn==23.0.0
+
+# --- For working with PDFs and images ---
+pytesseract==0.3.10
+Pillow==10.3.0
+pdf2image==1.17.0
+
+# --- For parsing / processing data ---
+numpy==1.26.4
+pandas==2.2.2
+
+# --- For handling dates / times ---
+python-dateutil==2.9.0.post0
+
+# --- For SQLite (already built-in, but explicit is fine) ---
+sqlite-utils==3.36
+
+# --- Optional: for text extraction accuracy ---
+opencv-python-headless==4.10.0.84
+
+# --- If you use environment variables (recommended for production) ---
+python-dotenv==1.0.1
