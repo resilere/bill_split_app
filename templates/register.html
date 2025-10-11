@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Register{% endblock %}
+{% block content %}
+<h1 style="margin-bottom: 10px;">Create a New Account</h1>
+<p style="margin-bottom: 20px; color: #555;">Fill out the form below to register a new user.</p>
+
+<form method="POST" action="{{ url_for('register') }}" style="max-width: 400px;">
+    <!-- Username -->
+    <div style="margin-bottom: 15px;">
+        <label for="username" style="display: block; font-weight: bold; margin-bottom: 5px;">Username</label>
+        <input type="text" name="username" id="username" required 
+               style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+    </div>
+
+    <!-- Password -->
+    <div style="margin-bottom: 15px;">
+        <label for="password" style="display: block; font-weight: bold; margin-bottom: 5px;">Password</label>
+        <input type="password" name="password" id="password" required
+               style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+    </div>
+
+    <!-- Confirm Password -->
+    <div style="margin-bottom: 20px;">
+        <label for="confirm_password" style="display: block; font-weight: bold; margin-bottom: 5px;">Confirm Password</label>
+        <input type="password" name="confirm_password" id="confirm_password" required
+               style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+    </div>
+
+    <button type="submit" 
+            style="padding: 12px 20px; background-color: #1a73e8; color: white; border: none; border-radius: 6px; font-size: 1em; cursor: pointer;">
+        Register
+    </button>
+</form>
+
+<p style="margin-top: 15px; color: #555;">
+    Already have an account? <a href="{{ url_for('login') }}" style="color: #1a73e8;">Login here</a>.
+</p>
+{% endblock %}

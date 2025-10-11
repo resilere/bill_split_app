@@ -48,6 +48,12 @@ def login():
         else:
             flash("Invalid username or password")
     return render_template("login.html")
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        # Handle user creation
+        pass
+    return render_template('register.html')
 
 
 # If Tesseract is not in your PATH, you might need to specify its path
