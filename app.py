@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, g, send_from_directory
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
 import os
 from dotenv import load_dotenv
 import pytesseract
@@ -17,6 +18,37 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'a_secret_key_for_dev')
 app.config['UPLOAD_FOLDER'] = 'uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+login_manager = LoginManager()
+login_manager.login_view = "login"
+login_manager.init_app(app)
+
+class User(UserMixin):
+    def __init__(self, id):
+        self.id = id
+# Read credentials from environment variables
+USERS = {
+    os.environ.get("APP_USERNAME"): os.environ.get("APP_PASSWORD")
+}
+
+@login_manager.user_loader
+def load_user(user_id):
+    if user_id in USERS:
+        return User(user_id)
+    return None
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form["username"]
+        password = request.form["password"]
+        if username in USERS and USERS[username] == password:
+            user = User(username)
+            login_user(user)
+            return redirect(url_for("history"))  # or wherever you want after login
+        else:
+            flash("Invalid username or password")
+    return render_template("login.html")
+
 
 # If Tesseract is not in your PATH, you might need to specify its path
 # pytesseract.pytesseract.tesseract_cmd = r'/path/to/tesseract.exe'
@@ -186,6 +218,7 @@ def calculate_balances_detailed():
 
 
 @app.route('/')
+@login_required
 def index():
     """Main route to upload a bill."""
     return render_template('index.html')
@@ -255,6 +288,7 @@ def upload_bill():
     return redirect(url_for('index'))
 
 @app.route('/uploads/<filename>')
+@login_required
 def uploaded_file(filename):
     """Securely serves uploaded files from the UPLOAD_FOLDER."""
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
@@ -320,6 +354,7 @@ def save_details():
         return redirect(url_for('index'))
 
 @app.route('/balances')
+@login_required
 def balances():
     """Displays the final calculated balances."""
     balances_data = calculate_balances_detailed()
@@ -360,6 +395,7 @@ def get_bill_history():
 
 
 @app.route('/history')
+@login_required
 def history():
     receipts = get_bill_history()
     return render_template("history.html", receipts=receipts)
@@ -418,7 +454,11 @@ def remove_receipt():
         flash(f'Error removing receipt: {e}')
 
     return redirect(url_for('history'))
-
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("login"))
 
 
 # Call init_db() when the app starts
