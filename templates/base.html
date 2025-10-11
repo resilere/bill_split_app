@@ -62,6 +62,15 @@ margin-bottom: 20px;
 <a href="{{ url_for('index') }}">Upload New Bill</a>
 <a href="{{ url_for('balances') }}">View Balances</a>
 <a href="{{ url_for('history') }}">History</a>
+ <!-- Login Info Section -->
+    <div style="float: right;">
+        {% if g.user %}
+            Hello, <strong>{{ g.user.username }}</strong> |
+            <a href="{{ url_for('logout') }}" style="color: white; text-decoration: underline;">Logout</a>
+        {% else %}
+            <a href="{{ url_for('login') }}" style="color: white; text-decoration: underline;">Login</a>
+        {% endif %}
+    </div>
 </div>
 
 <div class="container">

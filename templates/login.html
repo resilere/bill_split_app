@@ -1,8 +1,33 @@
-<h1>Login</h1>
-<form method="POST">
-  <label>Username:</label>
-  <input type="text" name="username" required><br><br>
-  <label>Password:</label>
-  <input type="password" name="password" required><br><br>
-  <button type="submit">Login</button>
-</form>
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block content %}
+<div style="max-width: 400px; margin: 50px auto; padding: 30px; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); background-color: #fafafa;">
+    <h2 style="text-align: center; color: #1a73e8; margin-bottom: 25px;">Welcome Back</h2>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul style="color: red; list-style: none; padding: 0; margin-bottom: 20px;">
+        {% for message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="{{ url_for('login') }}">
+        <label for="username" style="font-weight: bold; display: block; margin-bottom: 5px;">Username</label>
+        <input type="text" name="username" id="username" required
+               style="width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 5px;">
+
+        <label for="password" style="font-weight: bold; display: block; margin-bottom: 5px;">Password</label>
+        <input type="password" name="password" id="password" required
+               style="width: 100%; padding: 10px; margin-bottom: 25px; border: 1px solid #ccc; border-radius: 5px;">
+
+        <button type="submit" style="width: 100%; padding: 12px; background-color: #1a73e8; color: white; border: none; border-radius: 6px; font-size: 1em; cursor: pointer;">
+            Log In
+        </button>
+    </form>
+
+    <p style="text-align: center; margin-top: 20px; color: #555;">Don't have an account? <a href="{{ url_for('register') }}" style="color: #1a73e8; text-decoration: none;">Register</a></p>
+</div>
+{% endblock %}
