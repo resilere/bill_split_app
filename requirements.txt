@@ -23,3 +23,4 @@ opencv-python-headless==4.10.0.84
 
 # --- If you use environment variables (recommended for production) ---
 python-dotenv==1.0.1
+pdfplumber==0.11.0
