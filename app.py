@@ -12,7 +12,11 @@ import uuid
 from datetime import datetime
 import cv2
 import numpy as np
-
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
+)
 # Load environment variables from .env file
 load_dotenv()
 app = Flask(__name__)
@@ -258,10 +262,12 @@ def upload_bill():
     """Handles file uploads and performs OCR, then sends to bill details page."""
     if 'bill_image' not in request.files:
         flash('No file part')
+        logging.warning("Upload attempt without file part")
         return redirect(request.url)
     file = request.files['bill_image']
     if file.filename == '':
         flash('No selected file')
+        logging.warning("No selected file")
         return redirect(request.url)
     if file:
         file_bytes = file.read()
@@ -269,23 +275,30 @@ def upload_bill():
         unique_filename = f"{uuid.uuid4()}"
         image_path_for_display = None
         extracted_text = ""
-        
+         # Extract bill date from filename
+        date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
+        bill_date = date_match.group(0) if date_match else 'Unknown Date'
+        logging.info(f"Received upload: {file.filename} ({len(file_bytes)/1024:.1f} KB)")
+
         try:
             if file_extension in ['png', 'jpg', 'jpeg', 'gif']:
+                logging.info("Processing image upload...")
                 img = Image.open(io.BytesIO(file_bytes))
                 img = img.convert('RGB')
                 img.thumbnail((2000, 2000))
                 processed_img = preprocess_image_for_ocr(img)
                 image_path_for_display = f"{unique_filename}.png"
                 processed_img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
+                logging.info("Running OCR on image...")
                 extracted_text = pytesseract.image_to_string(processed_img)
+                logging.info("OCR complete for image.")
 
             elif file_extension == 'pdf':
-                 # Extract bill date from filename
-                date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
-                bill_date = date_match.group(0) if date_match else 'Unknown Date'
+                logging.info("Processing PDF upload...")
                 # pdf2image conversion for display snapshot and OCR
                 images = convert_from_bytes(file_bytes)
+                logging.info(f"Converted PDF to {len(images)} image(s). Starting OCR...")
+
                 if images:
                     # Save first page as jpeg for display snapshot
                     img = images[0]
@@ -295,15 +308,18 @@ def upload_bill():
                     # Process all pages for OCR
                     for i, page_img in enumerate(images):
                         extracted_text += pytesseract.image_to_string(page_img) + "\n--PAGE BREAK--\n"
+                        logging.info(f"OCR done for page {i+1}/{len(images)}")
                 else:
                     flash("Failed to convert PDF to image.")
                     return redirect(request.url)
             else:
                 flash('Unsupported file type.')
+                logging.error(f"Unsupported file type: {file_extension}")
+            
                 return redirect(request.url)
         except Exception as e:
             flash(f"Error processing file: {e}")
-            print(f"Error processing file: {e}")
+            logging.exception("Error during file processing")
             return redirect(request.url)
 
         parsed_items = parse_bill_text(extracted_text)
