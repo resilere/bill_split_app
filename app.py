@@ -6,6 +6,7 @@ import pytesseract
 from PIL import Image
 import io
 import re
+import pdfplumber
 from pdf2image import convert_from_bytes 
 import sqlite3
 import uuid
@@ -162,9 +163,6 @@ def parse_bill_text(text):
             except ValueError:
                 continue
     return items
-import cv2
-import numpy as np
-from PIL import Image
 
 def preprocess_image(pil_image):
     """Enhances receipt image for better OCR accuracy."""
@@ -309,21 +307,23 @@ def upload_bill():
                 logging.info("Processing PDF upload...")
                 # pdf2image conversion for display snapshot and OCR
                 images = convert_from_bytes(file_bytes)
-                logging.info(f"Converted PDF to {len(images)} image(s). Starting OCR...")
+                
 
                 if images:
                     # Save first page as jpeg for display snapshot
                     img = images[0]
                     image_path_for_display = f"{unique_filename}.jpeg"
                     img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display), 'JPEG')
-                    
-                    # Process all pages for OCR
-                    for i, page_img in enumerate(images):
-                        extracted_text += pytesseract.image_to_string(page_img) + "\n--PAGE BREAK--\n"
-                        logging.info(f"OCR done for page {i+1}/{len(images)}")
+                    logging.info(f"Converted PDF to {len(images)} image(s). Starting OCR...")
+                    try:
+                        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                            for page in pdf.pages:
+                                extracted_text += page.extract_text() + "\n--PAGE BREAK--\n"
+                    except Exception as e:
+                        flash(f"Error processing PDF: {e}. Make sure the PDF is not an image.")
                 else:
                     flash("Failed to convert PDF to image.")
-                    return redirect(request.url)
+                
             else:
                 flash('Unsupported file type.')
                 logging.error(f"Unsupported file type: {file_extension}")
