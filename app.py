@@ -10,6 +10,8 @@ from pdf2image import convert_from_bytes
 import sqlite3
 import uuid
 from datetime import datetime
+import cv2
+import numpy as np
 
 # Load environment variables from .env file
 load_dotenv()
@@ -156,7 +158,29 @@ def parse_bill_text(text):
             except ValueError:
                 continue
     return items
+def preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
+    """Enhance image contrast, binarize, and deskew for better OCR."""
+    # Convert PIL image to grayscale OpenCV format
+    img_cv = np.array(image.convert('L'))
 
+    # Threshold (binarization)
+    _, thresh = cv2.threshold(img_cv, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Optional: noise removal
+    denoised = cv2.fastNlMeansDenoising(thresh, h=30)
+
+    # Optional: deskew (basic)
+    coords = np.column_stack(np.where(denoised > 0))
+    angle = cv2.minAreaRect(coords)[-1]
+    if angle < -45:
+        angle = -(90 + angle)
+    else:
+        angle = -angle
+    (h, w) = denoised.shape[:2]
+    M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
+    deskewed = cv2.warpAffine(denoised, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+    return Image.fromarray(deskewed)
 def calculate_balances_detailed():
     db = get_db()
     cursor = db.cursor()
@@ -229,7 +253,7 @@ def index():
     """Main route to upload a bill."""
     return render_template('index.html')
 
-@app.route('/upload', methods=['POST'])
+@app.route('/upload_bill', methods=['GET','POST'])
 def upload_bill():
     """Handles file uploads and performs OCR, then sends to bill details page."""
     if 'bill_image' not in request.files:
@@ -249,9 +273,11 @@ def upload_bill():
         try:
             if file_extension in ['png', 'jpg', 'jpeg', 'gif']:
                 img = Image.open(io.BytesIO(file_bytes))
+                processed_img = preprocess_image_for_ocr(img)
                 image_path_for_display = f"{unique_filename}.png"
-                img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
-                extracted_text = pytesseract.image_to_string(img)
+                processed_img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
+                extracted_text = pytesseract.image_to_string(processed_img)
+
             elif file_extension == 'pdf':
                  # Extract bill date from filename
                 date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
