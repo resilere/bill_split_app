@@ -22,4 +22,5 @@ COPY . .
 EXPOSE 10000
 
 # Run the app using Gunicorn
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:10000"]
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 300 app:app
+
