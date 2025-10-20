@@ -244,9 +244,6 @@ def upload_bill():
         file_extension = file.filename.split('.')[-1].lower()
         unique_filename = f"{uuid.uuid4()}"
         image_path_for_display = None
-         # Extract bill date from filename
-        date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
-        bill_date = date_match.group(0) if date_match else 'Unknown Date'
         extracted_text = ""
         
         try:
@@ -256,6 +253,9 @@ def upload_bill():
                 img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
                 extracted_text = pytesseract.image_to_string(img)
             elif file_extension == 'pdf':
+                 # Extract bill date from filename
+                date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
+                bill_date = date_match.group(0) if date_match else 'Unknown Date'
                 # pdf2image conversion for display snapshot and OCR
                 images = convert_from_bytes(file_bytes)
                 if images:
