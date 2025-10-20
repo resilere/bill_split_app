@@ -162,29 +162,40 @@ def parse_bill_text(text):
             except ValueError:
                 continue
     return items
-def preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
-    """Enhance image contrast, binarize, and deskew for better OCR."""
-    # Convert PIL image to grayscale OpenCV format
-    img_cv = np.array(image.convert('L'))
+import cv2
+import numpy as np
+from PIL import Image
 
-    # Threshold (binarization)
-    _, thresh = cv2.threshold(img_cv, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+def preprocess_image(pil_image):
+    """Enhances receipt image for better OCR accuracy."""
+    # Convert PIL to OpenCV
+    img = np.array(pil_image.convert('L'))  # grayscale
 
-    # Optional: noise removal
-    denoised = cv2.fastNlMeansDenoising(thresh, h=30)
+    # 1. Remove noise and improve contrast
+    img = cv2.bilateralFilter(img, 9, 75, 75)
 
-    # Optional: deskew (basic)
-    coords = np.column_stack(np.where(denoised > 0))
+    # 2. Adaptive thresholding (binarize text)
+    img = cv2.adaptiveThreshold(
+        img, 255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31, 2
+    )
+
+    # 3. Optional: deskew (fix tilted receipts)
+    coords = np.column_stack(np.where(img > 0))
     angle = cv2.minAreaRect(coords)[-1]
     if angle < -45:
         angle = -(90 + angle)
     else:
         angle = -angle
-    (h, w) = denoised.shape[:2]
+    (h, w) = img.shape[:2]
     M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
-    deskewed = cv2.warpAffine(denoised, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    img = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
-    return Image.fromarray(deskewed)
+    # Back to PIL
+    return Image.fromarray(img)
+
 def calculate_balances_detailed():
     db = get_db()
     cursor = db.cursor()
@@ -279,18 +290,19 @@ def upload_bill():
         date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
         bill_date = date_match.group(0) if date_match else 'Unknown Date'
         logging.info(f"Received upload: {file.filename} ({len(file_bytes)/1024:.1f} KB)")
-
+        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz€.,:-/'
         try:
             if file_extension in ['png', 'jpg', 'jpeg', 'gif']:
                 logging.info("Processing image upload...")
                 img = Image.open(io.BytesIO(file_bytes))
-                img = img.convert('RGB')
-                img.thumbnail((2000, 2000))
-                processed_img = preprocess_image_for_ocr(img)
+                #img = img.convert('RGB')
+                #img.thumbnail((2000, 2000))
+                processed_img = preprocess_image(img)
                 image_path_for_display = f"{unique_filename}.png"
                 processed_img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
                 logging.info("Running OCR on image...")
-                extracted_text = pytesseract.image_to_string(processed_img)
+                extracted_text = pytesseract.image_to_string(processed_img, config=custom_config)
+                
                 logging.info("OCR complete for image.")
 
             elif file_extension == 'pdf':
