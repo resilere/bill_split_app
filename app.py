@@ -273,6 +273,8 @@ def upload_bill():
         try:
             if file_extension in ['png', 'jpg', 'jpeg', 'gif']:
                 img = Image.open(io.BytesIO(file_bytes))
+                img = img.convert('RGB')
+                img.thumbnail((2000, 2000))
                 processed_img = preprocess_image_for_ocr(img)
                 image_path_for_display = f"{unique_filename}.png"
                 processed_img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
