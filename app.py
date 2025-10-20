@@ -304,33 +304,31 @@ def upload_bill():
                 logging.info("OCR complete for image.")
 
             elif file_extension == 'pdf':
-                logging.info("Processing PDF upload...")
-                # pdf2image conversion for display snapshot and OCR
-                images = convert_from_bytes(file_bytes)
-                
+                logging.info("Processing PDF upload with pdfplumber...")
+                try:
+                    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                        for i, page in enumerate(pdf.pages):
+                            page_text = page.extract_text()
+                            if page_text:
+                                extracted_text += page_text + "\n--PAGE BREAK--\n"
+                        
+                        # Save first page as image preview
+                        first_page = pdf.pages[0]
+                        image_path_for_display = f"{unique_filename}.png"
+                        first_page.to_image(resolution=150).save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
+                        logging.info(f"PDF processed, extracted text from {len(pdf.pages)} pages.")
+                except Exception as e:
+                    flash(f"Error processing PDF: {e}.")
+                    logging.exception("PDF processing error")
+                    return redirect(request.url)
 
-                if images:
-                    # Save first page as jpeg for display snapshot
-                    img = images[0]
-                    image_path_for_display = f"{unique_filename}.jpeg"
-                    img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display), 'JPEG')
-                    logging.info(f"Converted PDF to {len(images)} image(s). Starting OCR...")
-                    try:
-                        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-                            for page in pdf.pages:
-                                extracted_text += page.extract_text() + "\n--PAGE BREAK--\n"
-                    except Exception as e:
-                        flash(f"Error processing PDF: {e}. Make sure the PDF is not an image.")
-                else:
-                    flash("Failed to convert PDF to image.")
-                
             else:
                 flash('Unsupported file type.')
                 logging.error(f"Unsupported file type: {file_extension}")
-            
                 return redirect(request.url)
+
         except Exception as e:
-            flash(f"Error processing file: {e}")
+            flash(f"Error processing PDF: {e}. Make sure the PDF is not an image.")   
             logging.exception("Error during file processing")
             return redirect(request.url)
 
