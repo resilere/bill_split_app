@@ -253,7 +253,7 @@ def index():
     """Main route to upload a bill."""
     return render_template('index.html')
 
-@app.route('/upload_bill', methods=['GET','POST'])
+@app.route('/upload', methods=['GET','POST'])
 def upload_bill():
     """Handles file uploads and performs OCR, then sends to bill details page."""
     if 'bill_image' not in request.files:
