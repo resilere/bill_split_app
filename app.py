@@ -245,20 +245,22 @@ def calculate_balances_detailed():
     # Get all items
     cursor.execute('SELECT price, assigned_to, receipt_id FROM items')
     items = cursor.fetchall()
+    # Convert prices to float
+    for item in items:
+        item['price'] = float(item['price'])
     # Get who paid for each receipt
     cursor.execute('SELECT id, payer_id FROM receipts')
     receipt_rows = cursor.fetchall()
     receipt_payers = {row['id']: row['payer_id'] for row in receipt_rows}
 
     # Totals for each person
-    # Convert all totals to float
-    eser_total_personal = sum(float(item['price']) for item in items if item['assigned_to'] == 'eser')
-    david_total_personal = sum(float(item['price']) for item in items if item['assigned_to'] == 'david')
-    shared_total = sum(float(item['price']) for item in items if item['assigned_to'] == 'shared')
+    # Totals for each person
+    eser_total_personal = sum(item['price'] for item in items if item['assigned_to'] == 'eser')
+    david_total_personal = sum(item['price'] for item in items if item['assigned_to'] == 'david')
+    shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
 
-    # Total actually paid by each
-    eser_paid_total = 0
-    david_paid_total = 0
+    eser_paid_total = 0.0
+    david_paid_total = 0.0
     for receipt_id, payer_id in receipt_payers.items():
         receipt_total = sum(
             item['price'] 
