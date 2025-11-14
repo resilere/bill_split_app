@@ -243,8 +243,8 @@ def calculate_balances_detailed():
     cursor = get_cursor()
 
     # Get all items
-    items = cursor.execute('SELECT price, assigned_to, receipt_id FROM items').fetchall()
-    
+    cursor.execute('SELECT price, assigned_to, receipt_id FROM items')
+    items = cursor.fetchall()
     # Get who paid for each receipt
     receipt_payers = {row['id']: row['payer_id'] for row in cursor.execute('SELECT id, payer_id FROM receipts')}
 
@@ -468,18 +468,19 @@ def get_bill_history():
     db = get_db()
     cursor = get_cursor()
 
-    receipts = cursor.execute('SELECT id, upload_date, payer_id, filename, bill_date, total FROM receipts ORDER BY bill_date DESC').fetchall()
-
+    cursor.execute('SELECT id, upload_date, payer_id, filename, bill_date, total FROM receipts ORDER BY bill_date DESC')
+    receipts = cursor.fetchall()
     
     bills_history = []
     
     for receipt in receipts:
         receipt_id = receipt['id']
+        cursor.execute(
+            'SELECT description, price, assigned_to FROM items WHERE receipt_id = %s', 
+            (receipt['id'],)
+        )
         items = [{'description': row['description'], 'assigned_to': row['assigned_to'], 'price': float(row['price'])} 
-         for row in cursor.execute(
-             'SELECT description, price, assigned_to FROM items WHERE receipt_id = %s', 
-             (receipt_id,)
-         ).fetchall()]
+                 for row in cursor.fetchall()]
         eser_total = sum(item['price'] for item in items if item['assigned_to'] == 'eser')
         david_total = sum(item['price'] for item in items if item['assigned_to'] == 'david')
         shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
