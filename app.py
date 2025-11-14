@@ -409,14 +409,14 @@ def save_details():
         filename = request.form.get('filename')  # Make sure your form passes this
         bill_date = request.form.get('bill_date')  # Also passed from form
 
-        # Insert the new receipt with filename and bill_date
+         # Insert the new receipt with RETURNING id to get receipt_id
         cursor.execute(
-            'INSERT INTO receipts (payer_id, filename, bill_date) VALUES (?, ?, ?)',
+            'INSERT INTO receipts (payer_id, filename, bill_date) VALUES (%s, %s, %s) RETURNING id',
             (payer_id, filename, bill_date)
         )
-        receipt_id = cursor.lastrowid
+        receipt_id = cursor.fetchone()['id']
 
-        total = 0.0  # Initialize total sum
+        total = 0.0
 
         # Loop through all the submitted form data for items
         for key, value in request.form.items():
@@ -433,12 +433,12 @@ def save_details():
                         price = float(price_str)
                         total += price
                         cursor.execute(
-                            'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (?, ?, ?, ?)',
+                            'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (%s, %s, %s, %s)',
                             (receipt_id, description, price, assigned_to)
                         )
 
         # Update the total in the receipts table
-        cursor.execute('UPDATE receipts SET total = ? WHERE id = ?', (total, receipt_id))
+        cursor.execute('UPDATE receipts SET total = %s WHERE id = %s', (total, receipt_id))
 
         db.commit()
         flash('Bill saved successfully!')
@@ -475,10 +475,11 @@ def get_bill_history():
     
     for receipt in receipts:
         receipt_id = receipt['id']
-        items = [{'description': row['description'], 'assigned_to': row['assigned_to'], 'price': float(row['price'])} for row in cursor.execute(
-                'SELECT description, price, assigned_to FROM items WHERE receipt_id = ?', 
-                (receipt_id,)
-            ).fetchall()]
+        items = [{'description': row['description'], 'assigned_to': row['assigned_to'], 'price': float(row['price'])} 
+         for row in cursor.execute(
+             'SELECT description, price, assigned_to FROM items WHERE receipt_id = %s', 
+             (receipt_id,)
+         ).fetchall()]
         eser_total = sum(item['price'] for item in items if item['assigned_to'] == 'eser')
         david_total = sum(item['price'] for item in items if item['assigned_to'] == 'david')
         shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
@@ -517,18 +518,17 @@ def manual_payment():
             description = request.form.get('description', 'Manual settlement')
             payment_date_str = request.form.get('payment_date')  # YYYY-MM-DD
             
-            # Insert a new receipt using the selected date
             cursor.execute(
-                'INSERT INTO receipts (payer_id, filename, bill_date) VALUES (?, ?, ?)',
+                'INSERT INTO receipts (payer_id, filename, bill_date) VALUES (%s, %s, %s) RETURNING id',
                 (payer, f"Manual_{description}", payment_date_str)
             )
-            receipt_id = cursor.lastrowid
-
-            # Insert the corresponding item
+            receipt_id = cursor.fetchone()['id']
+            # Insert corresponding item
             cursor.execute(
-                'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (?, ?, ?, ?)',
+                'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (%s, %s, %s, %s)',
                 (receipt_id, description, amount, payee)
             )
+
 
             db.commit()
             flash('Manual payment recorded successfully!')
@@ -547,9 +547,9 @@ def remove_receipt():
         db = get_db()
         cursor = get_cursor()
 
-        # Delete all items first, then the receipt
-        cursor.execute('DELETE FROM items WHERE receipt_id = ?', (receipt_id,))
-        cursor.execute('DELETE FROM receipts WHERE id = ?', (receipt_id,))
+        # Delete receipt and items
+        cursor.execute('DELETE FROM items WHERE receipt_id = %s', (receipt_id,))
+        cursor.execute('DELETE FROM receipts WHERE id = %s', (receipt_id,))
         db.commit()
 
         flash(f'Receipt #{receipt_id} removed successfully!')
