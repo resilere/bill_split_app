@@ -1,1 +1,3 @@
-# bill_split_app
+# Splight - split light!
+
+Split your grocery bills in a light way!
