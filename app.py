@@ -251,9 +251,10 @@ def calculate_balances_detailed():
     receipt_payers = {row['id']: row['payer_id'] for row in receipt_rows}
 
     # Totals for each person
-    eser_total_personal = sum(item['price'] for item in items if item['assigned_to'] == 'eser')
-    david_total_personal = sum(item['price'] for item in items if item['assigned_to'] == 'david')
-    shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
+    # Convert all totals to float
+    eser_total_personal = sum(float(item['price']) for item in items if item['assigned_to'] == 'eser')
+    david_total_personal = sum(float(item['price']) for item in items if item['assigned_to'] == 'david')
+    shared_total = sum(float(item['price']) for item in items if item['assigned_to'] == 'shared')
 
     # Total actually paid by each
     eser_paid_total = 0
