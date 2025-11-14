@@ -246,7 +246,9 @@ def calculate_balances_detailed():
     cursor.execute('SELECT price, assigned_to, receipt_id FROM items')
     items = cursor.fetchall()
     # Get who paid for each receipt
-    receipt_payers = {row['id']: row['payer_id'] for row in cursor.execute('SELECT id, payer_id FROM receipts')}
+    cursor.execute('SELECT id, payer_id FROM receipts')
+    receipt_rows = cursor.fetchall()
+    receipt_payers = {row['id']: row['payer_id'] for row in receipt_rows}
 
     # Totals for each person
     eser_total_personal = sum(item['price'] for item in items if item['assigned_to'] == 'eser')
