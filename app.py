@@ -8,7 +8,10 @@ import io
 import re
 import pdfplumber
 from pdf2image import convert_from_bytes 
-import sqlite3
+#import sqlite3
+import psycopg2
+import psycopg2.extras
+from urllib.parse import urlparse
 import uuid
 from datetime import datetime
 import cv2
@@ -20,6 +23,9 @@ logging.basicConfig(
 )
 # Load environment variables from .env file
 load_dotenv()
+# Use DATABASE_URL if provided (Render) otherwise local sqlite file (dev)
+DATABASE_URL = os.environ.get('DATABASE_URL')  # e.g. postgres://...
+#DATABASE = 'billsplitter.db'  # local sqlite fallback
 app = Flask(__name__)
 # The canvas environment provides the SECRET_KEY.
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'a_secret_key_for_dev')
@@ -66,60 +72,98 @@ def register():
 # If Tesseract is not in your PATH, you might need to specify its path
 # pytesseract.pytesseract.tesseract_cmd = r'/path/to/tesseract.exe'
 
-DATABASE = 'billsplitter.db'
+#DATABASE = 'billsplitter.db'
 
 def init_db():
-    """Initializes the SQLite database with necessary tables and default users."""
+    """Initializes the DB with tables. Supports Postgres (via DATABASE_URL) or local SQLite fallback."""
+    # Postgres-compatible statements
+    pg_users = """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE
+        );
+    """
+    pg_receipts = """
+        CREATE TABLE IF NOT EXISTS receipts (
+            id SERIAL PRIMARY KEY,
+            upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            payer_id TEXT,
+            filename TEXT,
+            bill_date DATE,
+            total NUMERIC DEFAULT 0,
+            image_path TEXT,
+            FOREIGN KEY (payer_id) REFERENCES users(id)
+        );
+    """
+    pg_items = """
+        CREATE TABLE IF NOT EXISTS items (
+            id SERIAL PRIMARY KEY,
+            receipt_id INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            price NUMERIC NOT NULL,
+            assigned_to TEXT NOT NULL,
+            FOREIGN KEY (receipt_id) REFERENCES receipts(id)
+        );
+    """
+
+
     with app.app_context():
-        db = get_db()
-        cursor = db.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE
-            )
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS receipts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                payer_id TEXT,
-                image_path TEXT, -- Added column to store snapshot path
-                FOREIGN KEY (payer_id) REFERENCES users(id)
-            )
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                receipt_id INTEGER NOT NULL,
-                description TEXT NOT NULL,
-                price REAL NOT NULL,
-                assigned_to TEXT NOT NULL,
-                FOREIGN KEY (receipt_id) REFERENCES receipts(id)
-            )
-        ''')
-        # Insert default users if they don't exist
-        try:
-            cursor.execute("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", ('eser', 'Eser'))
-            cursor.execute("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", ('david', 'David'))
-            db.commit()
-        except sqlite3.IntegrityError:
-            db.rollback()
-            print("Users 'Eser' and 'David' already exist.")
+        if DATABASE_URL:
+            # Use psycopg2 to create tables in Postgres
+            conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+            cur = conn.cursor()
+            cur.execute(pg_users)
+            cur.execute(pg_receipts)
+            cur.execute(pg_items)
+            # default users (use ON CONFLICT DO NOTHING)
+            cur.execute("INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", ('eser', 'Eser'))
+            cur.execute("INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", ('david', 'David'))
+            conn.commit()
+            cur.close()
+            conn.close()
+        
+class DBConnWrapper:
+    """Wrap a DB connection so app code can use .cursor(), .commit(), .rollback(), .close()."""
+    def __init__(self, conn, is_sqlite=False):
+        self._conn = conn
+        self._is_sqlite = is_sqlite
+
+    def cursor(self):
+        if self._is_sqlite:
+            return self._conn.cursor()
+        # For psycopg2 return a RealDictCursor so rows are accessible by key like sqlite Row
+        return self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
 
 def get_db():
-    """Establishes a new database connection or returns the existing one."""
     if 'db' not in g:
-        g.db = sqlite3.connect(DATABASE)
-        g.db.row_factory = sqlite3.Row
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+        g.db = conn
     return g.db
+def get_cursor():
+    db = get_db()
+    return db.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
 
 @app.teardown_appcontext
 def close_db(e=None):
-    """Closes the database connection at the end of the request."""
+    """Close DB connection at request end."""
     db = g.pop('db', None)
     if db is not None:
-        db.close()
+        try:
+            db.close()
+        except Exception:
+            pass
+
 
 def parse_bill_text(text):
     """
@@ -196,7 +240,7 @@ def preprocess_image(pil_image):
 
 def calculate_balances_detailed():
     db = get_db()
-    cursor = db.cursor()
+    cursor = get_cursor()
 
     # Get all items
     items = cursor.execute('SELECT price, assigned_to, receipt_id FROM items').fetchall()
@@ -359,7 +403,7 @@ def save_details():
     """Saves the assigned bill items to the database and redirects to the confirmation page."""
     try:
         db = get_db()
-        cursor = db.cursor()
+        cursor = get_cursor()
 
         payer_id = request.form['payer_id']
         filename = request.form.get('filename')  # Make sure your form passes this
@@ -422,7 +466,7 @@ def balances():
 
 def get_bill_history():
     db = get_db()
-    cursor = db.cursor()
+    cursor = get_cursor()
 
     receipts = cursor.execute('SELECT id, upload_date, payer_id, filename, bill_date, total FROM receipts ORDER BY bill_date DESC').fetchall()
 
@@ -465,7 +509,7 @@ def history():
 def manual_payment():
     if request.method == 'POST':
         db = get_db()
-        cursor = db.cursor()
+        cursor = get_cursor()
         try:
             payer = request.form['payer']
             payee = request.form['payee']
@@ -501,7 +545,7 @@ def remove_receipt():
     try:
         receipt_id = request.form.get('receipt_id')
         db = get_db()
-        cursor = db.cursor()
+        cursor = get_cursor()
 
         # Delete all items first, then the receipt
         cursor.execute('DELETE FROM items WHERE receipt_id = ?', (receipt_id,))
