@@ -25,7 +25,7 @@ logging.basicConfig(
 load_dotenv()
 # Use DATABASE_URL if provided (Render) otherwise local sqlite file (dev)
 DATABASE_URL = os.environ.get('DATABASE_URL')  # e.g. postgres://...
-#DATABASE = 'billsplitter.db'  # local sqlite fallback
+
 app = Flask(__name__)
 # The canvas environment provides the SECRET_KEY.
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'a_secret_key_for_dev')
@@ -524,17 +524,21 @@ def manual_payment():
             description = request.form.get('description', 'Manual settlement')
             payment_date_str = request.form.get('payment_date')  # YYYY-MM-DD
             
+            # Convert empty date to None for Postgres
+            bill_date = payment_date_str if payment_date_str else None
+
+            # Insert receipt; let Postgres auto-assign id
             cursor.execute(
-                'INSERT INTO receipts (payer_id, filename, bill_date) VALUES (%s, %s, %s) RETURNING id',
-                (payer, f"Manual_{description}", payment_date_str)
+                'INSERT INTO receipts (payer_id, filename, bill_date, total) VALUES (%s, %s, %s, %s) RETURNING id',
+                (payer, f"Manual_{description}", bill_date, amount)
             )
             receipt_id = cursor.fetchone()['id']
+
             # Insert corresponding item
             cursor.execute(
                 'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (%s, %s, %s, %s)',
                 (receipt_id, description, amount, payee)
             )
-
 
             db.commit()
             flash('Manual payment recorded successfully!')
@@ -546,6 +550,7 @@ def manual_payment():
             return redirect(url_for('manual_payment'))
 
     return render_template('manual_payment.html')
+
 @app.route('/remove_receipt', methods=['POST'])
 def remove_receipt():
     try:
