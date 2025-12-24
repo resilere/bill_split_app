@@ -529,7 +529,7 @@ def history():
     receipts = get_bill_history(sort_by=sort_by)
     
     return render_template("history.html", receipts=receipts, current_sort=sort_by)
-@app.route('/manual_payment', methods=['GET', 'POST'])
+
 
 @app.route('/update_receipt_date', methods=['POST'])
 @login_required
@@ -553,7 +553,8 @@ def update_receipt_date():
         flash(f'Error updating date: {e}')
         
     return redirect(url_for('history'))
-
+@app.route('/manual_payment', methods=['GET', 'POST'])
+@login_required
 def manual_payment():
     if request.method == 'POST':
         db = get_db()
