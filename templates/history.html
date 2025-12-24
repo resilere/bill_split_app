@@ -1,15 +1,34 @@
 {% extends "base.html" %}
 {% block title %}Receipt History{% endblock %}
 {% block content %}
-<h1>Receipt History</h1>
+
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1 style="margin: 0;">Receipt History</h1>
+    
+    <form method="GET" action="{{ url_for('history') }}" id="sortForm" style="background: #f0f4f8; padding: 10px 15px; border-radius: 8px; border: 1px solid #d1d9e0;">
+        <label for="sort_by" style="font-weight: bold; margin-right: 8px; color: #333;">Sort by:</label>
+        <select name="sort_by" id="sort_by" onchange="this.form.submit()" 
+                style="padding: 6px 10px; border-radius: 4px; border: 1px solid #ccc; cursor: pointer; background: white; font-size: 0.9em;">
+            <option value="upload_date" {% if current_sort == 'upload_date' %}selected{% endif %}>Last Added (Newest first)</option>
+            <option value="bill_date" {% if current_sort == 'bill_date' %}selected{% endif %}>Bill Date (Newest first)</option>
+            <option value="total" {% if current_sort == 'total' %}selected{% endif %}>Total Amount (Highest first)</option>
+        </select>
+    </form>
+</div>
 
 {% if receipts %}
     {% for receipt in receipts %}
-    <div style="border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 8px; background-color: #fafafa;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-           <h3 style="margin: 0; color: #1a73e8;">Receipt #{{ receipt.id }} ({{ receipt.date }})</h3>
-            <p style="margin: 0; font-weight: bold;">Paid by: <span style="text-transform: capitalize;">{{ receipt.payer }}</span></p>
-
+    <div style="border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 8px; background-color: #fafafa; position: relative;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+            <div>
+                <h3 style="margin: 0; color: #1a73e8;">Receipt #{{ receipt.id }}</h3>
+                <small style="color: #666;">Uploaded on: {{ receipt.upload_date }}</small>
+            </div>
+            <div style="text-align: right;">
+                <p style="margin: 0; font-weight: bold;">Date: {{ receipt.date }}</p>
+                <p style="margin: 0; color: #555;">Paid by: <span style="text-transform: capitalize;">{{ receipt.payer }}</span></p>
+            </div>
         </div>
         
         <table style="width: 100%; border-collapse: collapse;">
@@ -21,38 +40,43 @@
                 </tr>
             </thead>
             <tbody>
-                {% set receipt_total = 0 %}
                 {% for item in receipt["items"] %}
                 <tr>
                     <td style="padding: 8px 10px; border-bottom: 1px solid #eee;">{{ item.description }}</td>
                     <td style="padding: 8px 10px; text-align: right; border-bottom: 1px solid #eee;">€{{ "%.2f"|format(item.price) }}</td>
                     <td style="padding: 8px 10px; text-align: right; border-bottom: 1px solid #eee; text-transform: capitalize;">{{ item.assigned_to }}</td>
                 </tr>
-                
                 {% endfor %}
             </tbody>
             <tfoot>
                 <tr>
-                     <td colspan="3" style="padding: 10px; text-align: right; font-weight: bold; background-color: #f0f0f0; border-top: 2px solid #ddd;">
-                        Eser: €{{ "%.2f"|format(receipt.eser_total) }}, 
-                        David: €{{ "%.2f"|format(receipt.david_total) }}, 
-                        Shared: €{{ "%.2f"|format(receipt.shared_total) }}, 
-                        Receipt Total:   €{{ "%.2f"|format(receipt['total']) }}
+                    <td colspan="3" style="padding: 10px; text-align: right; font-weight: bold; background-color: #f0f0f0; border-top: 2px solid #ddd;">
+                        <span style="color: #555; font-weight: normal; margin-right: 15px;">
+                            Eser: €{{ "%.2f"|format(receipt.eser_total) }} | 
+                            David: €{{ "%.2f"|format(receipt.david_total) }} | 
+                            Shared: €{{ "%.2f"|format(receipt.shared_total) }}
+                        </span>
+                        <span style="font-size: 1.1em; color: #1a73e8; border-left: 2px solid #ccc; padding-left: 15px;">
+                            Receipt Total: €{{ "%.2f"|format(receipt['total']) }}
+                        </span>
                     </td>
                 </tr>
             </tfoot>
         </table>
-         <!-- Remove receipt button -->
-        <form method="POST" action="{{ url_for('remove_receipt') }}" style="margin-top: 10px;">
+
+        <form method="POST" action="{{ url_for('remove_receipt') }}" style="margin-top: 10px;" onsubmit="return confirm('Are you sure you want to delete this receipt? This action cannot be undone.');">
             <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
-            <button type="submit" style="background-color: #f44336; color: white; padding: 5px 10px; border: none; border-radius: 4px; cursor: pointer;">
-                Remove Receipt
+            <button type="submit" style="background-color: #f44336; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: opacity 0.2s;">
+                🗑 Remove Receipt
             </button>
         </form>
     </div>
     {% endfor %}
 {% else %}
-    <p>No receipts have been uploaded yet. Start by <a href="{{ url_for('index') }}">uploading a new bill</a>!</p>
+    <div style="text-align: center; padding: 40px; border: 2px dashed #ccc; border-radius: 8px;">
+        <p style="font-size: 1.2em; color: #666;">No receipts found matching your selection.</p>
+        <a href="{{ url_for('index') }}" style="display: inline-block; margin-top: 10px; padding: 10px 20px; background-color: #1a73e8; color: white; text-decoration: none; border-radius: 5px;">Upload a New Bill</a>
+    </div>
 {% endif %}
 
 {% endblock %}
