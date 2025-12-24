@@ -553,6 +553,30 @@ def update_receipt_date():
         flash(f'Error updating date: {e}')
         
     return redirect(url_for('history'))
+
+@app.route('/add_missing_item', methods=['POST'])
+def add_missing_item():
+    try:
+        receipt_id = request.form.get('receipt_id')
+        description = request.form.get('description')
+        price = float(request.form.get('price'))
+        assigned_to = request.form.get('assigned_to')
+
+        db = get_db()
+        cursor = get_cursor()
+
+        # Insert the new item into the database
+        cursor.execute(
+            'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (%s, %s, %s, %s)',
+            (receipt_id, description, price, assigned_to)
+        )
+        db.commit()
+        flash('Item added successfully!')
+    except Exception as e:
+        flash(f'Error adding item: {e}')
+    
+    return redirect(url_for('history'))
+
 @app.route('/manual_payment', methods=['GET', 'POST'])
 @login_required
 def manual_payment():
