@@ -531,6 +531,28 @@ def history():
     return render_template("history.html", receipts=receipts, current_sort=sort_by)
 @app.route('/manual_payment', methods=['GET', 'POST'])
 
+@app.route('/update_receipt_date', methods=['POST'])
+@login_required
+def update_receipt_date():
+    try:
+        receipt_id = request.form.get('receipt_id')
+        new_date = request.form.get('bill_date')
+        
+        db = get_db()
+        cursor = get_cursor()
+        
+        # Update the bill_date for the specific receipt
+        cursor.execute(
+            'UPDATE receipts SET bill_date = %s WHERE id = %s',
+            (new_date, receipt_id)
+        )
+        db.commit()
+        flash(f'Date updated for Receipt #{receipt_id}!')
+    except Exception as e:
+        db.rollback()
+        flash(f'Error updating date: {e}')
+        
+    return redirect(url_for('history'))
 
 def manual_payment():
     if request.method == 'POST':
