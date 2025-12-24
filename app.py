@@ -502,7 +502,7 @@ def get_bill_history(sort_by='upload_date'):
         eser_total = sum(item['price'] for item in items if item['assigned_to'] == 'eser')
         david_total = sum(item['price'] for item in items if item['assigned_to'] == 'david')
         shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
-        
+        calculated_total = eser_total + david_total + shared_total
         bills_history.append({
             'id': receipt['id'],
             'upload_date': receipt['upload_date'].strftime('%Y-%m-%d %H:%M') if receipt['upload_date'] else "N/A",
@@ -513,7 +513,7 @@ def get_bill_history(sort_by='upload_date'):
             'eser_total': round(eser_total, 2),
             'david_total': round(david_total, 2),
             'shared_total': round(shared_total, 2),
-            'total': float(receipt['total'])
+            'total': round(calculated_total, 2)
         })
         
     return bills_history
