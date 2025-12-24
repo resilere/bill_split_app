@@ -26,17 +26,26 @@
                 <small style="color: #666;">Uploaded on: {{ receipt.upload_date }}</small>
             </div>
             <div style="text-align: right;">
-                <p style="margin: 0; font-weight: bold;">Date: {{ receipt.date }}</p>
+                {% if receipt.date and receipt.date != 'Unknown' and receipt.date != '' %}
+                    <p style="margin: 0; font-weight: bold;">Date: {{ receipt.date }}</p>
+                {% else %}
+                    <form action="{{ url_for('update_receipt_date') }}" method="POST" style="display: inline-flex; align-items: center; gap: 5px;">
+                        <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
+                        <input type="date" name="bill_date" required style="padding: 2px; font-size: 0.8em; border: 1px solid #f44336;">
+                        <button type="submit" style="background: #4CAF50; color: white; border: none; padding: 3px 7px; border-radius: 3px; cursor: pointer; font-size: 0.75em;">Set Date</button>
+                    </form>
+                    <p style="margin: 0; color: #f44336; font-size: 0.75em;">Missing Date!</p>
+                {% endif %}
                 <p style="margin: 0; color: #555;">Paid by: <span style="text-transform: capitalize;">{{ receipt.payer }}</span></p>
             </div>
         </div>
         
-        <table style="width: 100%; border-collapse: collapse;">
+        <table style="width: 100%; border-collapse: collapse; background: white;">
             <thead>
                 <tr style="background-color: #e0e0e0;">
                     <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Item</th>
-                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Price</th>
-                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Assigned To</th>
+                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd; width: 100px;">Price</th>
+                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd; width: 150px;">Assigned To</th>
                 </tr>
             </thead>
             <tbody>
@@ -47,6 +56,26 @@
                     <td style="padding: 8px 10px; text-align: right; border-bottom: 1px solid #eee; text-transform: capitalize;">{{ item.assigned_to }}</td>
                 </tr>
                 {% endfor %}
+                
+                <tr style="background-color: #fff9e6;">
+                    <form action="{{ url_for('add_missing_item') }}" method="POST">
+                        <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
+                        <td style="padding: 8px 10px;">
+                            <input type="text" name="description" placeholder="Add missing item..." required style="width: 90%; padding: 4px;">
+                        </td>
+                        <td style="padding: 8px 10px; text-align: right;">
+                            <input type="number" step="0.01" name="price" placeholder="0.00" required style="width: 70px; text-align: right; padding: 4px;">
+                        </td>
+                        <td style="padding: 8px 10px; text-align: right;">
+                            <select name="assigned_to" style="padding: 4px;">
+                                <option value="shared">Shared</option>
+                                <option value="eser">Eser</option>
+                                <option value="david">David</option>
+                            </select>
+                            <button type="submit" style="background: #1a73e8; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; margin-left: 5px;">+</button>
+                        </td>
+                    </form>
+                </tr>
             </tbody>
             <tfoot>
                 <tr>
