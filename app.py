@@ -423,16 +423,29 @@ def save_details():
 
         total = 0.0
 
-        # Loop through all the submitted form data for items
+        # Loop through ALL form items
         for key, value in request.form.items():
-            if key.startswith('assigned_to_'):
-                index_str = key.split('_')[-1]
-                assigned_to = value
+            # Check for BOTH standard parsed items AND manual items
+            is_parsed = key.startswith('assigned_to_')
+            is_manual = key.startswith('manual_assigned_to_')
 
-                # Only save items that are not excluded
+            if is_parsed or is_manual:
+                assigned_to = value
+                index_str = key.split('_')[-1]
+
                 if assigned_to != 'excluded':
-                    description = request.form.get(f'item_description_{index_str}')
-                    price_str = request.form.get(f'item_price_{index_str}')
+                    # Determine prefix based on item type
+                    prefix = "manual_" if is_manual else ""
+                    
+                    description = request.form.get(f'{prefix}item_description_{index_str}')
+                    # Note: Your HTML uses "manual_description_", but parsed uses "item_description_"
+                    # To be safe, let's handle the specific manual naming:
+                    if is_manual:
+                        description = request.form.get(f'manual_description_{index_str}')
+                        price_str = request.form.get(f'manual_price_{index_str}')
+                    else:
+                        description = request.form.get(f'item_description_{index_str}')
+                        price_str = request.form.get(f'item_price_{index_str}')
 
                     if description and price_str:
                         price = float(price_str)
@@ -442,24 +455,15 @@ def save_details():
                             (receipt_id, description, price, assigned_to)
                         )
 
-        # Update the total in the receipts table
         cursor.execute('UPDATE receipts SET total = %s WHERE id = %s', (total, receipt_id))
-
         db.commit()
         flash('Bill saved successfully!')
         return redirect(url_for('balances'))
 
     except Exception as e:
-        db.rollback()
+        if db: db.rollback()
+        logging.error(f"Error in save_details: {e}")
         flash(f'An error occurred: {e}')
-        print(f"Error saving receipt: {e}")
-        return redirect(url_for('index'))
-
-
-    except Exception as e:
-        db.rollback()
-        flash(f'An error occurred: {e}')
-        print(f'Error saving details: {e}')
         return redirect(url_for('index'))
 
 @app.route('/balances')
