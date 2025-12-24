@@ -473,17 +473,26 @@ def balances():
     balances_data = calculate_balances_detailed()
     return render_template('balances.html', balance=balances_data)
 
-def get_bill_history():
+def get_bill_history(sort_by='upload_date'):
     db = get_db()
     cursor = get_cursor()
-
-    cursor.execute('SELECT id, upload_date, payer_id, filename, bill_date, total FROM receipts ORDER BY bill_date DESC')
+    # Define the mapping of sort keys to SQL columns
+    # We use a whitelist approach here to prevent SQL injection
+    sort_options = {
+        'upload_date': 'upload_date DESC',
+        'bill_date': 'bill_date DESC',
+        'total': 'total DESC'
+    }
+    order_clause = sort_options.get(sort_by, 'upload_date DESC')
+    # Use the dynamic order clause
+    query = f'SELECT id, upload_date, payer_id, filename, bill_date, total FROM receipts ORDER BY {order_clause}'
+    cursor.execute(query)
     receipts = cursor.fetchall()
     
     bills_history = []
     
     for receipt in receipts:
-        receipt_id = receipt['id']
+        # Get items for this receipt
         cursor.execute(
             'SELECT description, price, assigned_to FROM items WHERE receipt_id = %s', 
             (receipt['id'],)
@@ -496,6 +505,7 @@ def get_bill_history():
         
         bills_history.append({
             'id': receipt['id'],
+            'upload_date': receipt['upload_date'].strftime('%Y-%m-%d %H:%M') if receipt['upload_date'] else "N/A",
             'filename': receipt['filename'],
             'date': receipt['bill_date'],
             'payer': receipt['payer_id'],
@@ -512,8 +522,13 @@ def get_bill_history():
 @app.route('/history')
 @login_required
 def history():
-    receipts = get_bill_history()
-    return render_template("history.html", receipts=receipts)
+    # Capture the sort preference from the URL query string (?sort_by=...)
+    sort_by = request.args.get('sort_by', 'upload_date')
+    
+    # Pass the preference to the data fetcher
+    receipts = get_bill_history(sort_by=sort_by)
+    
+    return render_template("history.html", receipts=receipts, current_sort=sort_by)
 @app.route('/manual_payment', methods=['GET', 'POST'])
 
 
