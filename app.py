@@ -412,9 +412,13 @@ def save_details():
 
         payer_id = request.form['payer_id']
         filename = request.form.get('filename')  # Make sure your form passes this
-        bill_date = request.form.get('bill_date')  # Also passed from form
-
-         # Insert the new receipt with RETURNING id to get receipt_id
+        raw_date = request.form.get('bill_date')  # Also passed from form
+        # If it's invalid, set it to None so Postgres accepts it as a NULL value
+        if not raw_date or raw_date == "Unknown Date":
+            bill_date = None 
+        else:
+            bill_date = raw_date
+        # Insert the new receipt with RETURNING id to get receipt_id
         cursor.execute(
             'INSERT INTO receipts (payer_id, filename, bill_date) VALUES (%s, %s, %s) RETURNING id',
             (payer_id, filename, bill_date)
@@ -507,7 +511,7 @@ def get_bill_history(sort_by='upload_date'):
             'id': receipt['id'],
             'upload_date': receipt['upload_date'].strftime('%Y-%m-%d %H:%M') if receipt['upload_date'] else "N/A",
             'filename': receipt['filename'],
-            'date': receipt['bill_date'],
+            'date': receipt['bill_date'] if receipt['bill_date'] else "Unknown",
             'payer': receipt['payer_id'],
             'items': items,
             'eser_total': round(eser_total, 2),
