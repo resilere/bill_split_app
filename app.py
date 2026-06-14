@@ -1,6 +1,8 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, g, send_from_directory
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
+import requests
 import os
 from dotenv import load_dotenv
 import pytesseract
@@ -33,6 +35,16 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'a_secret_key_for_dev')
 app.config['UPLOAD_FOLDER'] = 'uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
+# Render terminates TLS in front of gunicorn; without this, url_for(_external=True)
+# would generate http:// links in emails instead of https://.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+# Supabase Auth (GoTrue) - handles signup confirmation emails, password reset
+# emails, and credential verification. The anon key is Supabase's public key,
+# safe to use here and to embed client-side (see reset_password.html).
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
+
 login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.init_app(app)
@@ -45,6 +57,27 @@ class User(UserMixin):
 # Legacy shared password, used as a one-time fallback for accounts that
 # predate per-user password hashes (see /login).
 LEGACY_PASSWORD = os.environ.get("APP_PASSWORD")
+
+
+def supabase_auth(method, path, **kwargs):
+    """Call Supabase's GoTrue REST API. Returns (status_code, json_body).
+    Returns a synthetic 503 if Supabase isn't configured or unreachable, so
+    callers can always treat the result as (status, dict)."""
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        return 503, {"error_description": "Auth service not configured."}
+    headers = {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': f'Bearer {SUPABASE_ANON_KEY}',
+        'Content-Type': 'application/json',
+    }
+    headers.update(kwargs.pop('headers', {}))
+    try:
+        resp = requests.request(method, f'{SUPABASE_URL}/auth/v1{path}', headers=headers, timeout=10, **kwargs)
+        return resp.status_code, resp.json()
+    except Exception as e:
+        logging.error(f"Supabase auth request failed: {e}")
+        return 503, {"error_description": "Auth service unavailable."}
+
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -61,10 +94,22 @@ def login():
 
         db = get_db()
         cursor = get_cursor()
-        cursor.execute('SELECT id, name, password_hash FROM users WHERE id = %s', (username,))
+        cursor.execute('SELECT id, name, email, auth_uid, password_hash FROM users WHERE id = %s', (username,))
         row = cursor.fetchone()
 
-        if row and row['password_hash'] is None and LEGACY_PASSWORD and password == LEGACY_PASSWORD:
+        if row and row['auth_uid'] and row['email']:
+            status, data = supabase_auth('POST', '/token?grant_type=password',
+                                          json={'email': row['email'], 'password': password})
+            if status == 200:
+                login_user(User(row['id'], row['name']))
+                return redirect(url_for("history"))
+            err = (data.get('error_description') or data.get('msg') or '').lower()
+            if 'confirm' in err:
+                flash("Please confirm your email before logging in. "
+                      "Use 'Resend confirmation email' below if you need a new link.")
+            else:
+                flash("Invalid username or password")
+        elif row and row['password_hash'] is None and row['auth_uid'] is None and LEGACY_PASSWORD and password == LEGACY_PASSWORD:
             new_hash = generate_password_hash(password)
             cursor.execute('UPDATE users SET password_hash = %s WHERE id = %s', (new_hash, row['id']))
             db.commit()
@@ -81,11 +126,15 @@ def login():
 def register():
     if request.method == "POST":
         username = request.form["username"].strip()
+        email = request.form["email"].strip().lower()
         password = request.form["password"]
         confirm_password = request.form["confirm_password"]
 
-        if not username or not password:
-            flash("Username and password are required.")
+        if not username or not password or not email:
+            flash("Username, email, and password are required.")
+            return render_template("register.html")
+        if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+            flash("Please enter a valid email address.")
             return render_template("register.html")
         if len(password) < 6:
             flash("Password must be at least 6 characters.")
@@ -106,15 +155,60 @@ def register():
             flash("Username already taken.")
             return render_template("register.html")
 
+        cursor.execute('SELECT id FROM users WHERE email = %s', (email,))
+        if cursor.fetchone():
+            flash("An account with that email already exists.")
+            return render_template("register.html")
+
+        status, data = supabase_auth('POST', f"/signup?redirect_to={url_for('login', _external=True)}",
+                                      json={'email': email, 'password': password})
+        if status >= 400:
+            flash(data.get('msg') or data.get('error_description') or "Could not create account.")
+            return render_template("register.html")
+
+        # /signup returns either {"user": {...}, "session": ...} (autoconfirm)
+        # or the user object directly (confirmation required)
+        user = data.get('user', data)
+        if user.get('identities') == []:
+            flash("An account with that email already exists. Try logging in or resetting your password.")
+            return render_template("register.html")
+
         cursor.execute(
-            'INSERT INTO users (id, name, password_hash) VALUES (%s, %s, %s)',
-            (user_id, username, generate_password_hash(password))
+            'INSERT INTO users (id, name, email, auth_uid) VALUES (%s, %s, %s, %s)',
+            (user_id, username, email, user.get('id'))
         )
         db.commit()
-        flash("Account created! You can now log in.", "success")
+        flash("Account created! Check your email for a confirmation link before logging in.", "success")
         return redirect(url_for("login"))
 
     return render_template("register.html")
+
+
+@app.route("/resend_verification", methods=["GET", "POST"])
+def resend_verification():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        supabase_auth('POST', '/resend', json={'type': 'signup', 'email': email})
+        flash("If that email is registered and not yet confirmed, a new confirmation link has been sent.", "success")
+        return redirect(url_for("login"))
+    return render_template("resend_verification.html")
+
+
+@app.route("/forgot_password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        supabase_auth('POST', f"/recover?redirect_to={url_for('reset_password', _external=True)}",
+                       json={'email': email})
+        flash("If that email is registered, a password reset link has been sent.", "success")
+        return redirect(url_for("login"))
+    return render_template("forgot_password.html")
+
+
+@app.route("/reset_password")
+def reset_password():
+    return render_template("reset_password.html",
+                            supabase_url=SUPABASE_URL, supabase_anon_key=SUPABASE_ANON_KEY)
 
 
 # If Tesseract is not in your PATH, you might need to specify its path
@@ -132,6 +226,9 @@ def init_db():
         );
     """
     pg_users_alter = "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;"
+    pg_users_alter_email = "ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE;"
+    pg_users_alter_verified = "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE;"
+    pg_users_alter_auth_uid = "ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_uid UUID UNIQUE;"
     pg_receipts = """
         CREATE TABLE IF NOT EXISTS receipts (
             id SERIAL PRIMARY KEY,
@@ -163,6 +260,9 @@ def init_db():
             cur = conn.cursor()
             cur.execute(pg_users)
             cur.execute(pg_users_alter)
+            cur.execute(pg_users_alter_email)
+            cur.execute(pg_users_alter_verified)
+            cur.execute(pg_users_alter_auth_uid)
             cur.execute(pg_receipts)
             cur.execute(pg_items)
             # default users (use ON CONFLICT DO NOTHING)

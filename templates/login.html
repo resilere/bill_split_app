@@ -29,5 +29,10 @@
     </form>
 
     <p style="text-align: center; margin-top: 20px; color: #555;">Don't have an account? <a href="{{ url_for('register') }}" style="color: #1a73e8; text-decoration: none;">Register</a></p>
+    <p style="text-align: center; margin-top: 10px; color: #555;">
+        <a href="{{ url_for('forgot_password') }}" style="color: #1a73e8; text-decoration: none;">Forgot your password?</a>
+        |
+        <a href="{{ url_for('resend_verification') }}" style="color: #1a73e8; text-decoration: none;">Resend confirmation email</a>
+    </p>
 </div>
 {% endblock %}
