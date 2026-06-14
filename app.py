@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, g, send_from_directory
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
+from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from dotenv import load_dotenv
 import pytesseract
@@ -37,36 +38,83 @@ login_manager.login_view = "login"
 login_manager.init_app(app)
 
 class User(UserMixin):
-    def __init__(self, id):
+    def __init__(self, id, name):
         self.id = id
-# Read credentials from environment variables
-USERS = {
-    os.environ.get("APP_USERNAME"): os.environ.get("APP_PASSWORD")
-}
+        self.name = name
+
+# Legacy shared password, used as a one-time fallback for accounts that
+# predate per-user password hashes (see /login).
+LEGACY_PASSWORD = os.environ.get("APP_PASSWORD")
 
 @login_manager.user_loader
 def load_user(user_id):
-    if user_id in USERS:
-        return User(user_id)
-    return None
+    cursor = get_cursor()
+    cursor.execute('SELECT id, name FROM users WHERE id = %s', (user_id,))
+    row = cursor.fetchone()
+    return User(row['id'], row['name']) if row else None
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        username = request.form["username"]
+        username = request.form["username"].strip()
         password = request.form["password"]
-        if username in USERS and USERS[username] == password:
-            user = User(username)
-            login_user(user)
-            return redirect(url_for("history"))  # or wherever you want after login
+
+        db = get_db()
+        cursor = get_cursor()
+        cursor.execute('SELECT id, name, password_hash FROM users WHERE id = %s', (username,))
+        row = cursor.fetchone()
+
+        if row and row['password_hash'] is None and LEGACY_PASSWORD and password == LEGACY_PASSWORD:
+            new_hash = generate_password_hash(password)
+            cursor.execute('UPDATE users SET password_hash = %s WHERE id = %s', (new_hash, row['id']))
+            db.commit()
+            login_user(User(row['id'], row['name']))
+            return redirect(url_for("history"))
+        elif row and row['password_hash'] and check_password_hash(row['password_hash'], password):
+            login_user(User(row['id'], row['name']))
+            return redirect(url_for("history"))
         else:
             flash("Invalid username or password")
     return render_template("login.html")
-@app.route('/register', methods=['GET', 'POST'])
+
+@app.route("/register", methods=["GET", "POST"])
 def register():
-    if request.method == 'POST':
-        # Handle user creation
-        pass
-    return render_template('register.html')
+    if request.method == "POST":
+        username = request.form["username"].strip()
+        password = request.form["password"]
+        confirm_password = request.form["confirm_password"]
+
+        if not username or not password:
+            flash("Username and password are required.")
+            return render_template("register.html")
+        if len(password) < 6:
+            flash("Password must be at least 6 characters.")
+            return render_template("register.html")
+        if password != confirm_password:
+            flash("Passwords do not match.")
+            return render_template("register.html")
+
+        user_id = re.sub(r'[^a-z0-9]+', '_', username.lower()).strip('_')
+        if not user_id:
+            flash("Invalid username.")
+            return render_template("register.html")
+
+        db = get_db()
+        cursor = get_cursor()
+        cursor.execute('SELECT id FROM users WHERE id = %s', (user_id,))
+        if cursor.fetchone():
+            flash("Username already taken.")
+            return render_template("register.html")
+
+        cursor.execute(
+            'INSERT INTO users (id, name, password_hash) VALUES (%s, %s, %s)',
+            (user_id, username, generate_password_hash(password))
+        )
+        db.commit()
+        flash("Account created! You can now log in.", "success")
+        return redirect(url_for("login"))
+
+    return render_template("register.html")
 
 
 # If Tesseract is not in your PATH, you might need to specify its path
@@ -83,6 +131,7 @@ def init_db():
             name TEXT NOT NULL UNIQUE
         );
     """
+    pg_users_alter = "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;"
     pg_receipts = """
         CREATE TABLE IF NOT EXISTS receipts (
             id SERIAL PRIMARY KEY,
@@ -113,6 +162,7 @@ def init_db():
             conn = psycopg2.connect(DATABASE_URL, sslmode='require')
             cur = conn.cursor()
             cur.execute(pg_users)
+            cur.execute(pg_users_alter)
             cur.execute(pg_receipts)
             cur.execute(pg_items)
             # default users (use ON CONFLICT DO NOTHING)
@@ -163,6 +213,17 @@ def close_db(e=None):
             db.close()
         except Exception:
             pass
+
+
+@app.context_processor
+def inject_all_users():
+    """Make the list of registered users available to every template."""
+    try:
+        cursor = get_cursor()
+        cursor.execute('SELECT id, name FROM users ORDER BY name')
+        return {'all_users': cursor.fetchall()}
+    except Exception:
+        return {'all_users': []}
 
 
 def parse_bill_text(text):
@@ -238,74 +299,95 @@ def preprocess_image(pil_image):
     # Back to PIL
     return Image.fromarray(img)
 
+def compute_settlements(balances):
+    """Greedy debt simplification: repeatedly match the largest debtor with
+    the largest creditor until all balances are settled."""
+    creditors = sorted((b.copy() for b in balances if b['net'] > 0.005), key=lambda x: -x['net'])
+    debtors = sorted((b.copy() for b in balances if b['net'] < -0.005), key=lambda x: x['net'])
+
+    settlements = []
+    i, j = 0, 0
+    while i < len(debtors) and j < len(creditors):
+        debtor = debtors[i]
+        creditor = creditors[j]
+        amount = min(-debtor['net'], creditor['net'])
+        if amount > 0.005:
+            settlements.append({
+                'from': debtor['id'],
+                'from_name': debtor['name'],
+                'to': creditor['id'],
+                'to_name': creditor['name'],
+                'amount': round(amount, 2),
+            })
+        debtor['net'] += amount
+        creditor['net'] -= amount
+        if abs(debtor['net']) < 0.005:
+            i += 1
+        if abs(creditor['net']) < 0.005:
+            j += 1
+    return settlements
+
+
 def calculate_balances_detailed():
-    db = get_db()
     cursor = get_cursor()
+
+    # Get all users involved in the split
+    cursor.execute('SELECT id, name FROM users ORDER BY name')
+    users = cursor.fetchall()
+    user_ids = [u['id'] for u in users]
+    n = len(users)
 
     # Get all items
     cursor.execute('SELECT price, assigned_to, receipt_id FROM items')
     items = cursor.fetchall()
-    # Convert prices to float
     for item in items:
         item['price'] = float(item['price'])
+
     # Get who paid for each receipt
     cursor.execute('SELECT id, payer_id FROM receipts')
-    receipt_rows = cursor.fetchall()
-    receipt_payers = {row['id']: row['payer_id'] for row in receipt_rows}
+    receipt_payers = {row['id']: row['payer_id'] for row in cursor.fetchall()}
 
-    # Totals for each person
-    # Totals for each person
-    eser_total_personal = sum(item['price'] for item in items if item['assigned_to'] == 'eser')
-    david_total_personal = sum(item['price'] for item in items if item['assigned_to'] == 'david')
     shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
+    shared_share = (shared_total / n) if n else 0.0
 
-    eser_paid_total = 0.0
-    david_paid_total = 0.0
-    for receipt_id, payer_id in receipt_payers.items():
-        receipt_total = sum(
-            item['price'] 
-            for item in items 
-            if item['receipt_id'] == receipt_id and item['assigned_to'] != 'excluded'
-        )
-        if payer_id == 'eser':
-            eser_paid_total += receipt_total
-        elif payer_id == 'david':
-            david_paid_total += receipt_total
-        elif payer_id == 'both':
-            eser_paid_total += receipt_total / 2
-            david_paid_total += receipt_total / 2
+    balances = []
+    for u in users:
+        uid = u['id']
+        personal_total = sum(item['price'] for item in items if item['assigned_to'] == uid)
 
-    # Responsibility for each person
-    eser_responsibility = eser_total_personal + (shared_total / 2)
-    david_responsibility = david_total_personal + (shared_total / 2)
+        paid_total = 0.0
+        for receipt_id, payer_id in receipt_payers.items():
+            receipt_total = sum(
+                item['price']
+                for item in items
+                if item['receipt_id'] == receipt_id and item['assigned_to'] != 'excluded'
+            )
+            if payer_id == uid:
+                paid_total += receipt_total
+            elif payer_id == 'both' and n == 2:
+                # Legacy 2-person receipts only; new receipts use a single payer id.
+                paid_total += receipt_total / 2
 
-    eser_net = eser_paid_total - eser_responsibility
-    david_net = david_paid_total - david_responsibility
+        responsibility = personal_total + shared_share
+        net = paid_total - responsibility
 
-    # Only one "owed amount"
-    if eser_net > david_net:  # David owes Eser
-        amount = eser_net
-        balance = {'who_owes': 'david', 'to_whom': 'eser', 'amount': amount}
-    elif david_net > eser_net:  # Eser owes David
-        amount = david_net
-        balance = {'who_owes': 'eser', 'to_whom': 'david', 'amount': amount}
-    else:
-        balance = {'who_owes': 'Nobody', 'to_whom': 'Nobody', 'amount': 0}
+        balances.append({
+            'id': uid,
+            'name': u['name'],
+            'personal_total': round(personal_total, 2),
+            'shared_share': round(shared_share, 2),
+            'paid_total': round(paid_total, 2),
+            'responsibility': round(responsibility, 2),
+            'net': round(net, 2),
+        })
 
+    settlements = compute_settlements(balances)
 
     return {
-    'eser_total_personal': eser_total_personal,
-    'david_total_personal': david_total_personal,
-    'shared_total': shared_total,
-    'eser_paid_total': eser_paid_total,
-    'david_paid_total': david_paid_total,
-    'eser_responsibility': eser_responsibility,
-    'david_responsibility': david_responsibility,
-    # Only one net balance difference is needed to avoid double counting
-    'who_owes': balance['who_owes'],
-    'to_whom': balance['to_whom'],
-    'amount': balance['amount']
-}
+        'users': balances,
+        'shared_total': round(shared_total, 2),
+        'settlements': settlements,
+    }
 
 
 
@@ -480,8 +562,11 @@ def balances():
     return render_template('balances.html', balance=balances_data)
 
 def get_bill_history(sort_by='upload_date'):
-    db = get_db()
     cursor = get_cursor()
+
+    cursor.execute('SELECT id, name FROM users ORDER BY name')
+    user_ids = [u['id'] for u in cursor.fetchall()]
+
     # Define the mapping of sort keys to SQL columns
     # We use a whitelist approach here to prevent SQL injection
     sort_options = {
@@ -494,21 +579,21 @@ def get_bill_history(sort_by='upload_date'):
     query = f'SELECT id, upload_date, payer_id, filename, bill_date, total FROM receipts ORDER BY {order_clause}'
     cursor.execute(query)
     receipts = cursor.fetchall()
-    
+
     bills_history = []
-    
+
     for receipt in receipts:
         # Get items for this receipt
         cursor.execute(
-            'SELECT description, price, assigned_to FROM items WHERE receipt_id = %s', 
+            'SELECT description, price, assigned_to FROM items WHERE receipt_id = %s',
             (receipt['id'],)
         )
-        items = [{'description': row['description'], 'assigned_to': row['assigned_to'], 'price': float(row['price'])} 
+        items = [{'description': row['description'], 'assigned_to': row['assigned_to'], 'price': float(row['price'])}
                  for row in cursor.fetchall()]
-        eser_total = sum(item['price'] for item in items if item['assigned_to'] == 'eser')
-        david_total = sum(item['price'] for item in items if item['assigned_to'] == 'david')
+        totals_by_user = {uid: round(sum(item['price'] for item in items if item['assigned_to'] == uid), 2)
+                           for uid in user_ids}
         shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
-        calculated_total = eser_total + david_total + shared_total
+        calculated_total = sum(totals_by_user.values()) + shared_total
         bills_history.append({
             'id': receipt['id'],
             'upload_date': receipt['upload_date'].strftime('%Y-%m-%d %H:%M') if receipt['upload_date'] else "N/A",
@@ -516,12 +601,11 @@ def get_bill_history(sort_by='upload_date'):
             'date': receipt['bill_date'] if receipt['bill_date'] else "Unknown",
             'payer': receipt['payer_id'],
             'items': items,
-            'eser_total': round(eser_total, 2),
-            'david_total': round(david_total, 2),
+            'totals_by_user': totals_by_user,
             'shared_total': round(shared_total, 2),
             'total': round(calculated_total, 2)
         })
-        
+
     return bills_history
 
 

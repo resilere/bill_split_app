@@ -64,7 +64,7 @@ margin-bottom: 20px;
 <a href="{{ url_for('history') }}">History</a>
  <span style="float: right;">
         {% if current_user.is_authenticated %}
-            Logged in as <strong>{{ current_user.username }}</strong> |
+            Logged in as <strong>{{ current_user.id }}</strong> |
             <a href="{{ url_for('logout') }}" style="color: white; text-decoration: underline;">Logout</a>
         {% else %}
             <a href="{{ url_for('login') }}">Login</a> |

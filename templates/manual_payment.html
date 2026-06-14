@@ -6,14 +6,16 @@
 <form method="POST">
     <label for="payer">Payer:</label>
     <select name="payer" id="payer" required>
-        <option value="eser">Eser</option>
-        <option value="david">David</option>
+        {% for u in all_users %}
+        <option value="{{ u.id }}">{{ u.name }}</option>
+        {% endfor %}
     </select><br><br>
 
     <label for="payee">Assign To / Payee:</label>
     <select name="payee" id="payee" required>
-        <option value="eser">Eser</option>
-        <option value="david">David</option>
+        {% for u in all_users %}
+        <option value="{{ u.id }}">{{ u.name }}</option>
+        {% endfor %}
         <option value="shared">Shared</option>
     </select><br><br>
 

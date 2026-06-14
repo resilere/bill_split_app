@@ -69,8 +69,9 @@
                         <td style="padding: 8px 10px; text-align: right;">
                             <select name="assigned_to" style="padding: 4px;">
                                 <option value="shared">Shared</option>
-                                <option value="eser">Eser</option>
-                                <option value="david">David</option>
+                                {% for u in all_users %}
+                                <option value="{{ u.id }}">{{ u.name }}</option>
+                                {% endfor %}
                             </select>
                             <button type="submit" style="background: #1a73e8; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; margin-left: 5px;">+</button>
                         </td>
@@ -81,8 +82,9 @@
                 <tr>
                     <td colspan="3" style="padding: 10px; text-align: right; font-weight: bold; background-color: #f0f0f0; border-top: 2px solid #ddd;">
                         <span style="color: #555; font-weight: normal; margin-right: 15px;">
-                            Eser: €{{ "%.2f"|format(receipt.eser_total) }} | 
-                            David: €{{ "%.2f"|format(receipt.david_total) }} | 
+                            {% for u in all_users %}
+                            {{ u.name }}: €{{ "%.2f"|format(receipt.totals_by_user.get(u.id, 0)) }} |
+                            {% endfor %}
                             Shared: €{{ "%.2f"|format(receipt.shared_total) }}
                         </span>
                         <span style="font-size: 1.1em; color: #1a73e8; border-left: 2px solid #ccc; padding-left: 15px;">
