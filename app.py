@@ -316,6 +316,7 @@ def index():
     return render_template('index.html')
 
 @app.route('/upload', methods=['GET','POST'])
+@login_required
 def upload_bill():
     """Handles file uploads and performs OCR, then sends to bill details page."""
     if 'bill_image' not in request.files:
@@ -404,6 +405,7 @@ def uploaded_file(filename):
 
 
 @app.route('/save_details', methods=['POST'])
+@login_required
 def save_details():
     """Saves the assigned bill items to the database and redirects to the confirmation page."""
     try:
@@ -559,6 +561,7 @@ def update_receipt_date():
     return redirect(url_for('history'))
 
 @app.route('/add_missing_item', methods=['POST'])
+@login_required
 def add_missing_item():
     try:
         receipt_id = request.form.get('receipt_id')
@@ -622,6 +625,7 @@ def manual_payment():
     return render_template('manual_payment.html')
 
 @app.route('/remove_receipt', methods=['POST'])
+@login_required
 def remove_receipt():
     try:
         receipt_id = request.form.get('receipt_id')

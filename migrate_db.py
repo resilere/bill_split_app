@@ -11,12 +11,12 @@ import os
 # Path to your SQLite DB
 SQLITE_PATH = "billsplitter.db"
 
-# Supabase Postgres connection
-PG_USER = "postgres.isoasuiofaytylemyvvb"
-PG_PASSWORD = os.environ.get("DB_PASSWORD", "[password]")
-PG_HOST = "aws-1-eu-west-1.pooler.supabase.com"  # replace with your Supabase pooler host
-PG_PORT = "5432"
-PG_DB = "postgres"
+# Supabase Postgres connection (set these in your environment, do not hardcode)
+PG_USER = os.environ["PG_USER"]
+PG_PASSWORD = os.environ["DB_PASSWORD"]
+PG_HOST = os.environ["PG_HOST"]
+PG_PORT = os.environ.get("PG_PORT", "5432")
+PG_DB = os.environ.get("PG_DB", "postgres")
 
 # URL-encode password to handle special characters
 encoded_password = quote(PG_PASSWORD)
