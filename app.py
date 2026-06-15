@@ -1,8 +1,10 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, g, send_from_directory
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 import requests
+import secrets
+import string
 import os
 from dotenv import load_dotenv
 import pytesseract
@@ -50,13 +52,24 @@ login_manager.login_view = "login"
 login_manager.init_app(app)
 
 class User(UserMixin):
-    def __init__(self, id, name):
+    def __init__(self, id, name, group_id):
         self.id = id
         self.name = name
+        self.group_id = group_id
 
 # Legacy shared password, used as a one-time fallback for accounts that
 # predate per-user password hashes (see /login).
 LEGACY_PASSWORD = os.environ.get("APP_PASSWORD")
+
+
+def generate_invite_code(cursor, length=8):
+    """Generate a random invite code that isn't already used by another group."""
+    alphabet = string.ascii_uppercase + string.digits
+    while True:
+        code = ''.join(secrets.choice(alphabet) for _ in range(length))
+        cursor.execute('SELECT 1 FROM groups WHERE invite_code = %s', (code,))
+        if not cursor.fetchone():
+            return code
 
 
 def supabase_auth(method, path, **kwargs):
@@ -82,9 +95,9 @@ def supabase_auth(method, path, **kwargs):
 @login_manager.user_loader
 def load_user(user_id):
     cursor = get_cursor()
-    cursor.execute('SELECT id, name FROM users WHERE id = %s', (user_id,))
+    cursor.execute('SELECT id, name, group_id FROM users WHERE id = %s', (user_id,))
     row = cursor.fetchone()
-    return User(row['id'], row['name']) if row else None
+    return User(row['id'], row['name'], row['group_id']) if row else None
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -94,14 +107,14 @@ def login():
 
         db = get_db()
         cursor = get_cursor()
-        cursor.execute('SELECT id, name, email, auth_uid, password_hash FROM users WHERE id = %s', (username,))
+        cursor.execute('SELECT id, name, email, auth_uid, password_hash, group_id FROM users WHERE id = %s', (username,))
         row = cursor.fetchone()
 
         if row and row['auth_uid'] and row['email']:
             status, data = supabase_auth('POST', '/token?grant_type=password',
                                           json={'email': row['email'], 'password': password})
             if status == 200:
-                login_user(User(row['id'], row['name']))
+                login_user(User(row['id'], row['name'], row['group_id']))
                 return redirect(url_for("history"))
             err = (data.get('error_description') or data.get('msg') or '').lower()
             if 'confirm' in err:
@@ -113,10 +126,10 @@ def login():
             new_hash = generate_password_hash(password)
             cursor.execute('UPDATE users SET password_hash = %s WHERE id = %s', (new_hash, row['id']))
             db.commit()
-            login_user(User(row['id'], row['name']))
+            login_user(User(row['id'], row['name'], row['group_id']))
             return redirect(url_for("history"))
         elif row and row['password_hash'] and check_password_hash(row['password_hash'], password):
-            login_user(User(row['id'], row['name']))
+            login_user(User(row['id'], row['name'], row['group_id']))
             return redirect(url_for("history"))
         else:
             flash("Invalid username or password")
@@ -160,6 +173,16 @@ def register():
             flash("An account with that email already exists.")
             return render_template("register.html")
 
+        group_code = request.form.get("group_code", "").strip().upper()
+        group_id = None
+        if group_code:
+            cursor.execute('SELECT id FROM groups WHERE invite_code = %s', (group_code,))
+            group_row = cursor.fetchone()
+            if not group_row:
+                flash("That household invite code wasn't found.")
+                return render_template("register.html")
+            group_id = group_row['id']
+
         status, data = supabase_auth('POST', f"/signup?redirect_to={url_for('login', _external=True)}",
                                       json={'email': email, 'password': password})
         if status >= 400:
@@ -173,9 +196,17 @@ def register():
             flash("An account with that email already exists. Try logging in or resetting your password.")
             return render_template("register.html")
 
+        if group_id is None:
+            invite_code = generate_invite_code(cursor)
+            cursor.execute(
+                'INSERT INTO groups (name, invite_code) VALUES (%s, %s) RETURNING id',
+                (f"{username}'s household", invite_code)
+            )
+            group_id = cursor.fetchone()['id']
+
         cursor.execute(
-            'INSERT INTO users (id, name, email, auth_uid) VALUES (%s, %s, %s, %s)',
-            (user_id, username, email, user.get('id'))
+            'INSERT INTO users (id, name, email, auth_uid, group_id) VALUES (%s, %s, %s, %s, %s)',
+            (user_id, username, email, user.get('id'), group_id)
         )
         db.commit()
         flash("Account created! Check your email for a confirmation link before logging in.", "success")
@@ -229,6 +260,16 @@ def init_db():
     pg_users_alter_email = "ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE;"
     pg_users_alter_verified = "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE;"
     pg_users_alter_auth_uid = "ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_uid UUID UNIQUE;"
+    pg_groups = """
+        CREATE TABLE IF NOT EXISTS groups (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            invite_code TEXT UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """
+    pg_users_alter_group = "ALTER TABLE users ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id);"
+    pg_receipts_alter_group = "ALTER TABLE receipts ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id);"
     pg_receipts = """
         CREATE TABLE IF NOT EXISTS receipts (
             id SERIAL PRIMARY KEY,
@@ -257,17 +298,34 @@ def init_db():
         if DATABASE_URL:
             # Use psycopg2 to create tables in Postgres
             conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-            cur = conn.cursor()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(pg_groups)
             cur.execute(pg_users)
             cur.execute(pg_users_alter)
             cur.execute(pg_users_alter_email)
             cur.execute(pg_users_alter_verified)
             cur.execute(pg_users_alter_auth_uid)
+            cur.execute(pg_users_alter_group)
             cur.execute(pg_receipts)
+            cur.execute(pg_receipts_alter_group)
             cur.execute(pg_items)
             # default users (use ON CONFLICT DO NOTHING)
             cur.execute("INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", ('eser', 'Eser'))
             cur.execute("INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", ('david', 'David'))
+
+            # One-time migration: put any users/receipts without a group into a
+            # shared "Household" group (covers the original eser/david data).
+            cur.execute("SELECT COUNT(*) AS c FROM groups")
+            if cur.fetchone()['c'] == 0:
+                invite_code = generate_invite_code(cur)
+                cur.execute(
+                    "INSERT INTO groups (name, invite_code) VALUES (%s, %s) RETURNING id",
+                    ("Household", invite_code)
+                )
+                default_group_id = cur.fetchone()['id']
+                cur.execute("UPDATE users SET group_id = %s WHERE group_id IS NULL", (default_group_id,))
+                cur.execute("UPDATE receipts SET group_id = %s WHERE group_id IS NULL", (default_group_id,))
+
             conn.commit()
             cur.close()
             conn.close()
@@ -317,10 +375,12 @@ def close_db(e=None):
 
 @app.context_processor
 def inject_all_users():
-    """Make the list of registered users available to every template."""
+    """Make the list of the current user's household members available to every template."""
     try:
+        if not current_user.is_authenticated:
+            return {'all_users': []}
         cursor = get_cursor()
-        cursor.execute('SELECT id, name FROM users ORDER BY name')
+        cursor.execute('SELECT id, name FROM users WHERE group_id = %s ORDER BY name', (current_user.group_id,))
         return {'all_users': cursor.fetchall()}
     except Exception:
         return {'all_users': []}
@@ -428,23 +488,27 @@ def compute_settlements(balances):
     return settlements
 
 
-def calculate_balances_detailed():
+def calculate_balances_detailed(group_id):
     cursor = get_cursor()
 
     # Get all users involved in the split
-    cursor.execute('SELECT id, name FROM users ORDER BY name')
+    cursor.execute('SELECT id, name FROM users WHERE group_id = %s ORDER BY name', (group_id,))
     users = cursor.fetchall()
     user_ids = [u['id'] for u in users]
     n = len(users)
 
-    # Get all items
-    cursor.execute('SELECT price, assigned_to, receipt_id FROM items')
+    # Get all items belonging to this group's receipts
+    cursor.execute(
+        'SELECT i.price, i.assigned_to, i.receipt_id FROM items i '
+        'JOIN receipts r ON r.id = i.receipt_id WHERE r.group_id = %s',
+        (group_id,)
+    )
     items = cursor.fetchall()
     for item in items:
         item['price'] = float(item['price'])
 
     # Get who paid for each receipt
-    cursor.execute('SELECT id, payer_id FROM receipts')
+    cursor.execute('SELECT id, payer_id FROM receipts WHERE group_id = %s', (group_id,))
     receipt_payers = {row['id']: row['payer_id'] for row in cursor.fetchall()}
 
     shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
@@ -604,8 +668,8 @@ def save_details():
             bill_date = raw_date
         # Insert the new receipt with RETURNING id to get receipt_id
         cursor.execute(
-            'INSERT INTO receipts (payer_id, filename, bill_date) VALUES (%s, %s, %s) RETURNING id',
-            (payer_id, filename, bill_date)
+            'INSERT INTO receipts (payer_id, filename, bill_date, group_id) VALUES (%s, %s, %s, %s) RETURNING id',
+            (payer_id, filename, bill_date, current_user.group_id)
         )
         receipt_id = cursor.fetchone()['id']
 
@@ -658,13 +722,13 @@ def save_details():
 @login_required
 def balances():
     """Displays the final calculated balances."""
-    balances_data = calculate_balances_detailed()
+    balances_data = calculate_balances_detailed(current_user.group_id)
     return render_template('balances.html', balance=balances_data)
 
-def get_bill_history(sort_by='upload_date'):
+def get_bill_history(sort_by='upload_date', group_id=None):
     cursor = get_cursor()
 
-    cursor.execute('SELECT id, name FROM users ORDER BY name')
+    cursor.execute('SELECT id, name FROM users WHERE group_id = %s ORDER BY name', (group_id,))
     user_ids = [u['id'] for u in cursor.fetchall()]
 
     # Define the mapping of sort keys to SQL columns
@@ -676,8 +740,8 @@ def get_bill_history(sort_by='upload_date'):
     }
     order_clause = sort_options.get(sort_by, 'upload_date DESC')
     # Use the dynamic order clause
-    query = f'SELECT id, upload_date, payer_id, filename, bill_date, total FROM receipts ORDER BY {order_clause}'
-    cursor.execute(query)
+    query = f'SELECT id, upload_date, payer_id, filename, bill_date, total FROM receipts WHERE group_id = %s ORDER BY {order_clause}'
+    cursor.execute(query, (group_id,))
     receipts = cursor.fetchall()
 
     bills_history = []
@@ -716,7 +780,7 @@ def history():
     sort_by = request.args.get('sort_by', 'upload_date')
     
     # Pass the preference to the data fetcher
-    receipts = get_bill_history(sort_by=sort_by)
+    receipts = get_bill_history(sort_by=sort_by, group_id=current_user.group_id)
     
     return render_template("history.html", receipts=receipts, current_sort=sort_by)
 
@@ -733,8 +797,8 @@ def update_receipt_date():
         
         # Update the bill_date for the specific receipt
         cursor.execute(
-            'UPDATE receipts SET bill_date = %s WHERE id = %s',
-            (new_date, receipt_id)
+            'UPDATE receipts SET bill_date = %s WHERE id = %s AND group_id = %s',
+            (new_date, receipt_id, current_user.group_id)
         )
         db.commit()
         flash(f'Date updated for Receipt #{receipt_id}!')
@@ -755,6 +819,12 @@ def add_missing_item():
 
         db = get_db()
         cursor = get_cursor()
+
+        # Make sure this receipt belongs to the current user's household
+        cursor.execute('SELECT id FROM receipts WHERE id = %s AND group_id = %s', (receipt_id, current_user.group_id))
+        if not cursor.fetchone():
+            flash('Receipt not found.')
+            return redirect(url_for('history'))
 
         # Insert the new item into the database
         cursor.execute(
@@ -786,8 +856,8 @@ def manual_payment():
 
             # Insert receipt; let Postgres auto-assign id
             cursor.execute(
-                'INSERT INTO receipts (payer_id, filename, bill_date, total) VALUES (%s, %s, %s, %s) RETURNING id',
-                (payer, f"Manual_{description}", bill_date, amount)
+                'INSERT INTO receipts (payer_id, filename, bill_date, total, group_id) VALUES (%s, %s, %s, %s, %s) RETURNING id',
+                (payer, f"Manual_{description}", bill_date, amount, current_user.group_id)
             )
             receipt_id = cursor.fetchone()['id']
 
@@ -816,6 +886,12 @@ def remove_receipt():
         db = get_db()
         cursor = get_cursor()
 
+        # Make sure this receipt belongs to the current user's household
+        cursor.execute('SELECT id FROM receipts WHERE id = %s AND group_id = %s', (receipt_id, current_user.group_id))
+        if not cursor.fetchone():
+            flash('Receipt not found.')
+            return redirect(url_for('history'))
+
         # Delete receipt and items
         cursor.execute('DELETE FROM items WHERE receipt_id = %s', (receipt_id,))
         cursor.execute('DELETE FROM receipts WHERE id = %s', (receipt_id,))
@@ -827,6 +903,17 @@ def remove_receipt():
         flash(f'Error removing receipt: {e}')
 
     return redirect(url_for('history'))
+
+@app.route('/group')
+@login_required
+def group_page():
+    cursor = get_cursor()
+    cursor.execute('SELECT id, name, invite_code FROM groups WHERE id = %s', (current_user.group_id,))
+    grp = cursor.fetchone()
+    cursor.execute('SELECT id, name FROM users WHERE group_id = %s ORDER BY name', (current_user.group_id,))
+    members = cursor.fetchall()
+    return render_template('group.html', group=grp, members=members)
+
 @app.route("/logout")
 @login_required
 def logout():
