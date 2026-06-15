@@ -392,19 +392,26 @@ def parse_bill_text(text):
     This version is more flexible and handles both comma and period decimal separators.
     """
     items = []
-    # This regex captures everything up to the price and then ignores any characters after it.
-    item_line_pattern = re.compile(r'(.+?)\s*(-?\d+[.,]\d{2})\s*.*?$')
+    # This regex captures everything up to the price (allowing an optional
+    # thousands separator and currency symbol) and ignores any trailing characters.
+    item_line_pattern = re.compile(r'(.+?)\s*€?\s*(-?\d{1,3}(?:[.,]\d{3})*[.,]\d{2})\s*€?\s*.*?$')
 
     # Keywords to filter out non-item lines (like totals, taxes, etc.)
-    filter_keywords = ['gesamt', 'summe', 'zwischensumme', 'steuer', 'mwst', 'bar', 'bargeld', 'karte', 'zahlung', 'betrag', 'rueckgeld', 'saldo', 'rabatt', 'guthaben']
-    
+    filter_keywords = [
+        'gesamt', 'summe', 'zwischensumme', 'steuer', 'mwst', 'ust',
+        'bar', 'bargeld', 'karte', 'ec-cash', 'zahlung', 'betrag',
+        'rueckgeld', 'rückgeld', 'saldo', 'rabatt', 'guthaben',
+        'total', 'subtotal', 'tax', 'vat', 'cash', 'card', 'change', 'balance', 'discount', 'tip', 'trinkgeld',
+        '/kg', '€/kg', 'stk',
+    ]
+
     for line in text.split('\n'):
         line = line.strip()
         if not line:
             continue
-        
-        # Stop parsing if 'summe' is found
-        if 'summe' in line.lower():
+
+        # Stop parsing once the totals section starts
+        if 'summe' in line.lower() or 'total' in line.lower():
             break
 
         # Check if the line contains a filter keyword
@@ -434,10 +441,19 @@ def preprocess_image(pil_image):
     # Convert PIL to OpenCV
     img = np.array(pil_image.convert('L'))  # grayscale
 
-    # 1. Remove noise and improve contrast
+    # 1. Downscale large photos. OCR time and the deskew step below both
+    # scale with pixel count, and phone photos are often far larger than
+    # Tesseract needs.
+    max_dim = 1800
+    h, w = img.shape[:2]
+    if max(h, w) > max_dim:
+        scale = max_dim / max(h, w)
+        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+
+    # 2. Remove noise and improve contrast
     img = cv2.bilateralFilter(img, 9, 75, 75)
 
-    # 2. Adaptive thresholding (binarize text)
+    # 3. Adaptive thresholding (binarize text)
     img = cv2.adaptiveThreshold(
         img, 255,
         cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -445,16 +461,21 @@ def preprocess_image(pil_image):
         31, 2
     )
 
-    # 3. Optional: deskew (fix tilted receipts)
-    coords = np.column_stack(np.where(img > 0))
-    angle = cv2.minAreaRect(coords)[-1]
-    if angle < -45:
-        angle = -(90 + angle)
-    else:
-        angle = -angle
-    (h, w) = img.shape[:2]
-    M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
-    img = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    # 4. Deskew (fix tilted receipts). Estimate the angle from the text
+    # pixels themselves (fewer points than the background, so this stays
+    # fast), and only rotate for a genuine tilt - small angle "corrections"
+    # just blur already-straight text.
+    coords = cv2.findNonZero(255 - img)
+    if coords is not None:
+        angle = cv2.minAreaRect(coords)[-1]
+        if angle < -45:
+            angle = -(90 + angle)
+        else:
+            angle = -angle
+        if 0.5 < abs(angle) < 15:
+            h, w = img.shape[:2]
+            M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
+            img = cv2.warpAffine(img, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
     # Back to PIL
     return Image.fromarray(img)
@@ -584,7 +605,7 @@ def upload_bill():
         date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
         bill_date = date_match.group(0) if date_match else 'Unknown Date'
         logging.info(f"Received upload: {file.filename} ({len(file_bytes)/1024:.1f} KB)")
-        custom_config = r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz€.,:-/'
+        custom_config = r'--oem 3 --psm 4 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÖÜäöüß€%.,:-/ '
         try:
             if file_extension in ['png', 'jpg', 'jpeg', 'gif']:
                 logging.info("Processing image upload...")
@@ -595,7 +616,7 @@ def upload_bill():
                 image_path_for_display = f"{unique_filename}.png"
                 processed_img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
                 logging.info("Running OCR on image...")
-                extracted_text = pytesseract.image_to_string(processed_img, config=custom_config)
+                extracted_text = pytesseract.image_to_string(processed_img, lang='deu+eng', config=custom_config)
                 
                 logging.info("OCR complete for image.")
 

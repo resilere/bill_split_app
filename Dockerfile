@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Install system dependencies for OCR and PDF handling
 RUN apt-get update && \
-    apt-get install -y tesseract-ocr poppler-utils && \
+    apt-get install -y tesseract-ocr tesseract-ocr-deu poppler-utils && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy Python dependencies file
