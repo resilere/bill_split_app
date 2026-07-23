@@ -9,6 +9,34 @@
 </p>
 
 {% if entries %}
+
+<!-- Filter toolbar -->
+<div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; margin-bottom:16px;">
+  <div id="memFilters" style="display:flex; flex-wrap:wrap; gap:6px;">
+    <button type="button" class="chip active" data-filter="all">All</button>
+    <button type="button" class="chip" data-filter="personal">Personal only</button>
+    {% for m in members %}
+    <button type="button" class="chip" data-filter="{{ m.id }}">{{ m.name }}</button>
+    {% endfor %}
+    <button type="button" class="chip" data-filter="shared">Shared</button>
+  </div>
+  <input type="search" id="memSearch" placeholder="Search items…"
+         style="padding:8px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:0.88em; min-width:180px;">
+</div>
+<p id="memCount" style="font-size:0.82em; color:var(--text-muted); margin-bottom:10px;"></p>
+
+<style>
+  .chip {
+    padding:6px 13px; border:1.5px solid var(--border); background:var(--surface);
+    color:var(--text); border-radius:99px; font-size:0.84em; font-weight:600;
+    cursor:pointer; transition:all 0.15s;
+  }
+  .chip:hover { border-color:var(--primary); }
+  .chip.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+  .chip .chip-count { opacity:0.7; font-weight:500; margin-left:3px; }
+  #memEmpty { display:none; text-align:center; padding:32px; color:var(--text-muted); }
+</style>
+
 <div style="overflow-x:auto;">
   <table class="table">
     <thead>
@@ -19,9 +47,9 @@
         <th style="width:150px;">Source</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="memRows">
       {% for e in entries %}
-      <tr>
+      <tr class="mem-row" data-assignee="{{ e.effective }}" data-name="{{ e.display|lower }}">
         <td>{{ e.display }}</td>
         <td class="text-right" style="color:var(--text-muted);">{{ e.count }}×</td>
         <td>
@@ -54,11 +82,66 @@
       {% endfor %}
     </tbody>
   </table>
+  <div id="memEmpty">No items match this filter.</div>
 </div>
 <p style="margin-top:14px; font-size:0.82em; color:var(--text-muted);">
   Pinned items always win over what history suggests. Editing here never changes past receipts —
   it only affects what gets pre-filled on future uploads.
 </p>
+
+<script>
+(function () {
+  const rows    = Array.from(document.querySelectorAll('#memRows .mem-row'));
+  const filters = document.getElementById('memFilters');
+  const search  = document.getElementById('memSearch');
+  const countEl = document.getElementById('memCount');
+  const emptyEl = document.getElementById('memEmpty');
+  let activeFilter = 'all';
+
+  // Show a count on each chip
+  filters.querySelectorAll('.chip').forEach(chip => {
+    const f = chip.dataset.filter;
+    const n = rows.filter(r => matchesFilter(r, f)).length;
+    if (f !== 'all') {
+      const span = document.createElement('span');
+      span.className = 'chip-count';
+      span.textContent = '(' + n + ')';
+      chip.appendChild(span);
+    }
+  });
+
+  function matchesFilter(row, f) {
+    const who = row.dataset.assignee;
+    if (f === 'all') return true;
+    if (f === 'personal') return who !== 'shared';
+    return who === f;
+  }
+
+  function apply() {
+    const q = search.value.trim().toLowerCase();
+    let shown = 0;
+    rows.forEach(row => {
+      const ok = matchesFilter(row, activeFilter) && (!q || row.dataset.name.includes(q));
+      row.style.display = ok ? '' : 'none';
+      if (ok) shown++;
+    });
+    countEl.textContent = 'Showing ' + shown + ' of ' + rows.length + ' items';
+    emptyEl.style.display = shown === 0 ? 'block' : 'none';
+  }
+
+  filters.addEventListener('click', e => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    filters.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    activeFilter = chip.dataset.filter;
+    apply();
+  });
+  search.addEventListener('input', apply);
+
+  apply();
+})();
+</script>
 {% else %}
 <div style="text-align:center; padding:48px 24px; border:2px dashed var(--border); border-radius:12px; color:var(--text-muted);">
   <div style="font-size:2.5em; margin-bottom:12px;">🧠</div>
