@@ -879,12 +879,13 @@ def get_bill_history(sort_by='upload_date', group_id=None):
     items_by_receipt = {rid: [] for rid in receipt_ids}
     if receipt_ids:
         cursor.execute(
-            'SELECT receipt_id, description, price, assigned_to FROM items WHERE receipt_id = ANY(%s)',
+            'SELECT id, receipt_id, description, price, assigned_to FROM items WHERE receipt_id = ANY(%s) ORDER BY id',
             (receipt_ids,)
         )
         for row in cursor.fetchall():
             items_by_receipt[row['receipt_id']].append(
-                {'description': row['description'], 'assigned_to': row['assigned_to'], 'price': float(row['price'])}
+                {'id': row['id'], 'description': row['description'],
+                 'assigned_to': row['assigned_to'], 'price': float(row['price'])}
             )
 
     bills_history = []
@@ -981,8 +982,84 @@ def add_missing_item():
         flash('Item added successfully!')
     except Exception as e:
         flash(f'Error adding item: {e}')
-    
+
     return redirect(url_for('history'))
+
+
+def _recompute_receipt_total(cursor, receipt_id):
+    """Keep receipts.total in sync after item changes (excludes 'excluded' items)."""
+    cursor.execute(
+        "SELECT COALESCE(SUM(price), 0) AS t FROM items "
+        "WHERE receipt_id = %s AND assigned_to <> 'excluded'",
+        (receipt_id,)
+    )
+    total = cursor.fetchone()['t']
+    cursor.execute('UPDATE receipts SET total = %s WHERE id = %s', (total, receipt_id))
+
+
+def _item_receipt_in_group(cursor, item_id, group_id):
+    """Return the item's receipt_id if it belongs to this household, else None."""
+    cursor.execute(
+        'SELECT i.receipt_id FROM items i JOIN receipts r ON r.id = i.receipt_id '
+        'WHERE i.id = %s AND r.group_id = %s',
+        (item_id, group_id)
+    )
+    row = cursor.fetchone()
+    return row['receipt_id'] if row else None
+
+
+@app.route('/remove_item', methods=['POST'])
+@login_required
+def remove_item():
+    db = None
+    try:
+        item_id = request.form.get('item_id')
+        db = get_db()
+        cursor = get_cursor()
+        receipt_id = _item_receipt_in_group(cursor, item_id, current_user.group_id)
+        if receipt_id is None:
+            flash('Item not found.')
+            return redirect(url_for('history'))
+        cursor.execute('DELETE FROM items WHERE id = %s', (item_id,))
+        _recompute_receipt_total(cursor, receipt_id)
+        db.commit()
+        flash('Item removed.')
+    except Exception as e:
+        if db:
+            db.rollback()
+        flash(f'Error removing item: {e}')
+    return redirect(url_for('history'))
+
+
+@app.route('/update_item', methods=['POST'])
+@login_required
+def update_item():
+    """Reassign a single item to a different member, shared, or excluded."""
+    db = None
+    try:
+        item_id = request.form.get('item_id')
+        assigned_to = request.form.get('assigned_to')
+        db = get_db()
+        cursor = get_cursor()
+        receipt_id = _item_receipt_in_group(cursor, item_id, current_user.group_id)
+        if receipt_id is None:
+            flash('Item not found.')
+            return redirect(url_for('history'))
+        cursor.execute('SELECT id FROM users WHERE group_id = %s', (current_user.group_id,))
+        valid = {row['id'] for row in cursor.fetchall()}
+        if assigned_to not in valid and assigned_to not in ('shared', 'excluded'):
+            flash('Invalid assignment.')
+            return redirect(url_for('history'))
+        cursor.execute('UPDATE items SET assigned_to = %s WHERE id = %s', (assigned_to, item_id))
+        _recompute_receipt_total(cursor, receipt_id)
+        db.commit()
+        flash('Item updated.')
+    except Exception as e:
+        if db:
+            db.rollback()
+        flash(f'Error updating item: {e}')
+    return redirect(url_for('history'))
+
 
 @app.route('/manual_payment', methods=['GET', 'POST'])
 @login_required
