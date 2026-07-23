@@ -81,7 +81,7 @@
   <input type="hidden" name="r{{ ri }}_filename" value="{{ receipt.filename }}">
   <input type="hidden" name="r{{ ri }}_bill_date" value="{{ receipt.bill_date }}">
 
-  <div class="receipt-block" style="
+  <div class="receipt-block" data-ri="{{ ri }}" style="
     border: 1px solid var(--border);
     border-radius: 12px;
     margin-bottom: 24px;
@@ -131,20 +131,6 @@
 
         <!-- Assignment panel -->
         <div style="flex:1; min-width:280px;">
-
-          <!-- Payer -->
-          <div class="form-group">
-            <label class="form-label">Who paid?</label>
-            <div class="payer-select">
-              {% for u in all_users %}
-              <label class="payer-pill">
-                <input type="radio" name="r{{ ri }}_payer_id" value="{{ u.id }}"
-                       {% if u.id == current_user.id %}checked{% endif %}>
-                <span>{{ u.name }}</span>
-              </label>
-              {% endfor %}
-            </div>
-          </div>
 
           <!-- Parsed items table -->
           {% if receipt.parsed_items %}
@@ -219,6 +205,30 @@
             + Add item
           </button>
 
+          <!-- Payer + running total (bottom, where you finish reviewing) -->
+          <hr class="divider" style="margin:22px 0 16px;">
+          <div class="form-group">
+            <label class="form-label">Who paid?</label>
+            <div class="payer-select">
+              {% for u in all_users %}
+              <label class="payer-pill">
+                <input type="radio" name="r{{ ri }}_payer_id" value="{{ u.id }}"
+                       {% if u.id == current_user.id %}checked{% endif %}>
+                <span>{{ u.name }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:baseline; gap:12px;
+                      padding:12px 16px; background:#f8fafc; border:1px solid var(--border);
+                      border-radius:10px; margin-top:6px;">
+            <span style="font-size:0.88em; color:var(--text-muted);">
+              Receipt total <span style="font-size:0.85em;">(excludes excluded items)</span>
+            </span>
+            <span class="receipt-live-total" style="font-size:1.35em; font-weight:700; color:var(--primary);">€0.00</span>
+          </div>
+
         </div><!-- /assignment panel -->
       </div><!-- /flex row -->
     </div><!-- /receipt-body -->
@@ -233,7 +243,7 @@
     </button>
     <span style="color:var(--text-muted); font-size:0.85em;">
       Total across all receipts:
-      <strong>€{{ "%.2f"|format(receipts|sum(attribute='total_sum')) }}</strong>
+      <strong id="grandTotal">€{{ "%.2f"|format(receipts|sum(attribute='total_sum')) }}</strong>
     </span>
   </div>
 </form>
@@ -262,10 +272,38 @@ function addManualItem(ri) {
     </td>
     <td>
       <button type="button" class="btn btn-danger btn-sm"
-              onclick="this.closest('tr').remove()"
+              onclick="this.closest('tr').remove(); recomputeAll();"
               style="padding:4px 9px;">✕</button>
     </td>`;
   body.appendChild(row);
+  recomputeAll();
+}
+
+// Live receipt total = sum of every non-excluded item (parsed + manual).
+function recomputeReceipt(block) {
+  let total = 0;
+  block.querySelectorAll('input[name*="_item_price_"]').forEach(pi => {
+    const base = pi.name.replace('_item_price_', '_assigned_to_');
+    const checked = block.querySelector('input[name="' + base + '"]:checked');
+    const assign = checked ? checked.value : 'shared';
+    if (assign !== 'excluded') total += parseFloat(pi.value) || 0;
+  });
+  block.querySelectorAll('input[name*="_manual_price_"]').forEach(pi => {
+    const base = pi.name.replace('_manual_price_', '_manual_assigned_to_');
+    const sel = block.querySelector('select[name="' + base + '"]');
+    const assign = sel ? sel.value : 'shared';
+    if (assign !== 'excluded') total += parseFloat(pi.value) || 0;
+  });
+  const el = block.querySelector('.receipt-live-total');
+  if (el) el.textContent = '€' + total.toFixed(2);
+  return total;
+}
+
+function recomputeAll() {
+  let grand = 0;
+  document.querySelectorAll('.receipt-block').forEach(b => { grand += recomputeReceipt(b); });
+  const g = document.getElementById('grandTotal');
+  if (g) g.textContent = '€' + grand.toFixed(2);
 }
 
 function toggleReceipt(ri) {
@@ -276,5 +314,11 @@ function toggleReceipt(ri) {
   body.style.display = hidden ? '' : 'none';
   if (icon) icon.textContent = hidden ? '▲' : '▼';
 }
+
+// Recompute totals whenever a price, assignment, or exclusion changes.
+const assignForm = document.getElementById('assignForm');
+assignForm.addEventListener('input', recomputeAll);
+assignForm.addEventListener('change', recomputeAll);
+recomputeAll();
 </script>
 {% endblock %}
