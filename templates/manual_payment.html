@@ -4,6 +4,7 @@
 <h1>Add Manual Payment / Settlement</h1>
 
 <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="payer">Payer:</label>
     <select name="payer" id="payer" required>
         {% for u in all_users %}

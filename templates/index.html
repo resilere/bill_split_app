@@ -5,6 +5,7 @@
 <p class="page-subtitle">Drop one or multiple receipts and we'll OCR them all at once.</p>
 
 <form method="POST" action="{{ url_for('upload_bill') }}" enctype="multipart/form-data" id="uploadForm">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div id="dropZone" style="
     border: 2px dashed var(--border);
     border-radius: 14px;

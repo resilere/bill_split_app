@@ -13,6 +13,7 @@
 </p>
 
 <form method="POST" action="{{ url_for('save_details') }}" id="assignForm">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="receipt_count" value="{{ receipts|length }}">
 
   {% for receipt in receipts %}

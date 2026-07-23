@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, g, send_from_directory
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_wtf.csrf import CSRFProtect, CSRFError
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 import requests
@@ -12,13 +13,9 @@ from PIL import Image
 import io
 import re
 import pdfplumber
-from pdf2image import convert_from_bytes 
-#import sqlite3
 import psycopg2
 import psycopg2.extras
-from urllib.parse import urlparse
 import uuid
-from datetime import datetime
 import cv2
 import numpy as np
 import logging
@@ -32,10 +29,26 @@ load_dotenv()
 DATABASE_URL = os.environ.get('DATABASE_URL')  # e.g. postgres://...
 
 app = Flask(__name__)
-# The canvas environment provides the SECRET_KEY.
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'a_secret_key_for_dev')
+
+# SECRET_KEY signs session cookies and CSRF tokens. A hardcoded fallback would
+# let anyone forge sessions, so require it in production (where DATABASE_URL is
+# set) and fall back to an ephemeral random key only for local dev.
+_secret_key = os.environ.get('SECRET_KEY')
+if not _secret_key:
+    if DATABASE_URL:
+        raise RuntimeError("SECRET_KEY environment variable must be set in production.")
+    _secret_key = secrets.token_hex(32)  # ephemeral dev key (sessions reset on restart)
+app.config['SECRET_KEY'] = _secret_key
+
+# Cap request body size to prevent memory-exhaustion DoS via huge uploads.
+# Generous enough for batch uploads of several high-res receipt photos/PDFs.
+app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32 MB
+
 app.config['UPLOAD_FOLDER'] = 'uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# CSRF protection for all state-changing (POST) form submissions.
+csrf = CSRFProtect(app)
 
 # Render terminates TLS in front of gunicorn; without this, url_for(_external=True)
 # would generate http:// links in emails instead of https://.
@@ -50,6 +63,21 @@ SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
 login_manager = LoginManager()
 login_manager.login_view = "login"
 login_manager.init_app(app)
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    """Show a friendly message instead of a raw 400 when a CSRF token is
+    missing or expired (e.g. the user left a form open too long)."""
+    flash("Your session expired. Please try again.")
+    return redirect(request.referrer or url_for('index'))
+
+
+@app.errorhandler(413)
+def handle_too_large(e):
+    flash("That upload is too large. Please keep files under 32 MB.")
+    return redirect(url_for('index'))
+
 
 class User(UserMixin):
     def __init__(self, id, name, group_id):
@@ -331,27 +359,6 @@ def init_db():
             conn.commit()
             cur.close()
             conn.close()
-        
-class DBConnWrapper:
-    """Wrap a DB connection so app code can use .cursor(), .commit(), .rollback(), .close()."""
-    def __init__(self, conn, is_sqlite=False):
-        self._conn = conn
-        self._is_sqlite = is_sqlite
-
-    def cursor(self):
-        if self._is_sqlite:
-            return self._conn.cursor()
-        # For psycopg2 return a RealDictCursor so rows are accessible by key like sqlite Row
-        return self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-    def commit(self):
-        return self._conn.commit()
-
-    def rollback(self):
-        return self._conn.rollback()
-
-    def close(self):
-        return self._conn.close()
 
 
 def get_db():
@@ -690,12 +697,23 @@ def save_details():
         cursor = get_cursor()
         receipt_count = int(request.form.get('receipt_count', 1))
 
+        # Valid assignment targets are only members of the current household,
+        # plus the special 'shared'/'excluded' markers. This stops a tampered
+        # form from crediting or assigning items to users in other groups.
+        cursor.execute('SELECT id FROM users WHERE group_id = %s', (current_user.group_id,))
+        valid_user_ids = {row['id'] for row in cursor.fetchall()}
+
         for ri in range(receipt_count):
             pfx = f'r{ri}_'
             payer_id = request.form[f'{pfx}payer_id']
             filename = request.form.get(f'{pfx}filename')
             raw_date = request.form.get(f'{pfx}bill_date')
             bill_date = None if (not raw_date or raw_date == 'Unknown Date') else raw_date
+
+            if payer_id not in valid_user_ids:
+                db.rollback()
+                flash('Invalid payer selected.')
+                return redirect(url_for('index'))
 
             cursor.execute(
                 'INSERT INTO receipts (payer_id, filename, bill_date, group_id) VALUES (%s, %s, %s, %s) RETURNING id',
@@ -716,6 +734,10 @@ def save_details():
                 idx = sub.split('_')[-1]
                 if assigned_to == 'excluded':
                     continue
+                if assigned_to != 'shared' and assigned_to not in valid_user_ids:
+                    db.rollback()
+                    flash('Invalid item assignment.')
+                    return redirect(url_for('index'))
                 if is_manual:
                     desc = request.form.get(f'{pfx}manual_description_{idx}')
                     price_str = request.form.get(f'{pfx}manual_price_{idx}')
@@ -814,13 +836,14 @@ def history():
 @app.route('/update_receipt_date', methods=['POST'])
 @login_required
 def update_receipt_date():
+    db = None
     try:
         receipt_id = request.form.get('receipt_id')
         new_date = request.form.get('bill_date')
-        
+
         db = get_db()
         cursor = get_cursor()
-        
+
         # Update the bill_date for the specific receipt
         cursor.execute(
             'UPDATE receipts SET bill_date = %s WHERE id = %s AND group_id = %s',
@@ -829,9 +852,10 @@ def update_receipt_date():
         db.commit()
         flash(f'Date updated for Receipt #{receipt_id}!')
     except Exception as e:
-        db.rollback()
+        if db:
+            db.rollback()
         flash(f'Error updating date: {e}')
-        
+
     return redirect(url_for('history'))
 
 @app.route('/add_missing_item', methods=['POST'])
@@ -850,6 +874,13 @@ def add_missing_item():
         cursor.execute('SELECT id FROM receipts WHERE id = %s AND group_id = %s', (receipt_id, current_user.group_id))
         if not cursor.fetchone():
             flash('Receipt not found.')
+            return redirect(url_for('history'))
+
+        # Assignment must be 'shared' or a member of this household
+        cursor.execute('SELECT id FROM users WHERE group_id = %s', (current_user.group_id,))
+        valid_user_ids = {row['id'] for row in cursor.fetchall()}
+        if assigned_to != 'shared' and assigned_to not in valid_user_ids:
+            flash('Invalid item assignment.')
             return redirect(url_for('history'))
 
         # Insert the new item into the database
@@ -876,9 +907,16 @@ def manual_payment():
             amount = float(request.form['amount'])
             description = request.form.get('description', 'Manual settlement')
             payment_date_str = request.form.get('payment_date')  # YYYY-MM-DD
-            
+
             # Convert empty date to None for Postgres
             bill_date = payment_date_str if payment_date_str else None
+
+            # Payer and payee must belong to this household ('shared' allowed for payee)
+            cursor.execute('SELECT id FROM users WHERE group_id = %s', (current_user.group_id,))
+            valid_user_ids = {row['id'] for row in cursor.fetchall()}
+            if payer not in valid_user_ids or (payee != 'shared' and payee not in valid_user_ids):
+                flash('Invalid payer or payee.')
+                return redirect(url_for('manual_payment'))
 
             # Insert receipt; let Postgres auto-assign id
             cursor.execute(

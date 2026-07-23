@@ -15,6 +15,7 @@
     {% endwith %}
 
     <form method="POST" action="{{ url_for('login') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label for="username" style="font-weight: bold; display: block; margin-bottom: 5px;">Username</label>
         <input type="text" name="username" id="username" required
                style="width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 5px;">

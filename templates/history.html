@@ -34,6 +34,7 @@
           <span class="badge badge-accent">{{ receipt.date }}</span>
         {% else %}
           <form action="{{ url_for('update_receipt_date') }}" method="POST" style="display:flex; align-items:center; gap:6px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
             <input type="date" name="bill_date" required class="form-control" style="width:150px; padding:5px 8px; font-size:0.83em;">
             <button type="submit" class="btn btn-success btn-sm">Set</button>
@@ -68,6 +69,7 @@
           <!-- Add missing item row -->
           <tr style="background:#fffbeb;">
             <form action="{{ url_for('add_missing_item') }}" method="POST">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
               <td><input type="text" name="description" placeholder="Add missing item…" required
                          style="width:95%; padding:5px 8px; border:1px solid var(--border); border-radius:5px; font-size:0.88em;"></td>
@@ -106,6 +108,7 @@
     <div style="padding:10px 16px; background:#f8fafc; border-top:1px solid var(--border); text-align:right;">
       <form method="POST" action="{{ url_for('remove_receipt') }}"
             onsubmit="return confirm('Delete this receipt? This cannot be undone.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
         <button type="submit" class="btn btn-danger btn-sm">🗑 Remove Receipt</button>
       </form>

@@ -5,6 +5,7 @@
 <p style="margin-bottom: 20px; color: #555;">Fill out the form below to register a new user.</p>
 
 <form method="POST" action="{{ url_for('register') }}" style="max-width: 400px;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <!-- Username -->
     <div style="margin-bottom: 15px;">
         <label for="username" style="display: block; font-weight: bold; margin-bottom: 5px;">Username</label>
