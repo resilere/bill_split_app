@@ -205,7 +205,7 @@ def register():
             group_id = cursor.fetchone()['id']
 
         cursor.execute(
-            'INSERT INTO users (id, name, email, auth_uid, group_id) VALUES (%s, %s, %s, %s, %s)',
+            'INSERT INTO users (id, name, email, auth_uid, group_id, joined_at) VALUES (%s, %s, %s, %s, %s, NOW())',
             (user_id, username, email, user.get('id'), group_id)
         )
         db.commit()
@@ -269,6 +269,7 @@ def init_db():
         );
     """
     pg_users_alter_group = "ALTER TABLE users ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id);"
+    pg_users_alter_joined_at = "ALTER TABLE users ADD COLUMN IF NOT EXISTS joined_at TIMESTAMP DEFAULT '2000-01-01';"
     pg_receipts_alter_group = "ALTER TABLE receipts ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id);"
     pg_receipts = """
         CREATE TABLE IF NOT EXISTS receipts (
@@ -306,6 +307,7 @@ def init_db():
             cur.execute(pg_users_alter_verified)
             cur.execute(pg_users_alter_auth_uid)
             cur.execute(pg_users_alter_group)
+            cur.execute(pg_users_alter_joined_at)
             cur.execute(pg_receipts)
             cur.execute(pg_receipts_alter_group)
             cur.execute(pg_items)
@@ -512,13 +514,22 @@ def compute_settlements(balances):
 def calculate_balances_detailed(group_id):
     cursor = get_cursor()
 
-    # Get all users involved in the split
-    cursor.execute('SELECT id, name FROM users WHERE group_id = %s ORDER BY name', (group_id,))
+    # Users with their join dates (founding members default to '2000-01-01')
+    cursor.execute(
+        'SELECT id, name, joined_at FROM users WHERE group_id = %s ORDER BY name',
+        (group_id,)
+    )
     users = cursor.fetchall()
-    user_ids = [u['id'] for u in users]
-    n = len(users)
 
-    # Get all items belonging to this group's receipts
+    # All receipts with their effective date for membership cutoff
+    cursor.execute(
+        'SELECT id, payer_id, COALESCE(bill_date, upload_date) AS receipt_date '
+        'FROM receipts WHERE group_id = %s',
+        (group_id,)
+    )
+    receipts = cursor.fetchall()
+
+    # All items for this group
     cursor.execute(
         'SELECT i.price, i.assigned_to, i.receipt_id FROM items i '
         'JOIN receipts r ON r.id = i.receipt_id WHERE r.group_id = %s',
@@ -528,49 +539,61 @@ def calculate_balances_detailed(group_id):
     for item in items:
         item['price'] = float(item['price'])
 
-    # Get who paid for each receipt
-    cursor.execute('SELECT id, payer_id FROM receipts WHERE group_id = %s', (group_id,))
-    receipt_payers = {row['id']: row['payer_id'] for row in cursor.fetchall()}
+    # Accumulate per-user totals, computing N per receipt based on who had joined by then.
+    acc = {u['id']: {'personal': 0.0, 'shared_owed': 0.0, 'paid': 0.0} for u in users}
+    total_shared = 0.0
 
-    shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
-    shared_share = (shared_total / n) if n else 0.0
+    for receipt in receipts:
+        rid = receipt['id']
+        rdate = receipt['receipt_date']
+        payer_id = receipt['payer_id']
+        receipt_items = [i for i in items if i['receipt_id'] == rid]
+
+        # Members who had joined by this receipt's date
+        active_ids = [
+            u['id'] for u in users
+            if u['joined_at'] is None or u['joined_at'] <= rdate
+        ]
+        n = len(active_ids) or 1
+
+        shared_in_receipt = sum(i['price'] for i in receipt_items if i['assigned_to'] == 'shared')
+        total_shared += shared_in_receipt
+        per_person_shared = shared_in_receipt / n
+
+        for uid in active_ids:
+            acc[uid]['shared_owed'] += per_person_shared
+
+        for item in receipt_items:
+            if item['assigned_to'] in acc:
+                acc[item['assigned_to']]['personal'] += item['price']
+
+        receipt_total = sum(i['price'] for i in receipt_items if i['assigned_to'] != 'excluded')
+        if payer_id in acc:
+            acc[payer_id]['paid'] += receipt_total
+        elif payer_id == 'both' and n == 2:
+            for uid in active_ids:
+                acc[uid]['paid'] += receipt_total / 2
 
     balances = []
     for u in users:
         uid = u['id']
-        personal_total = sum(item['price'] for item in items if item['assigned_to'] == uid)
-
-        paid_total = 0.0
-        for receipt_id, payer_id in receipt_payers.items():
-            receipt_total = sum(
-                item['price']
-                for item in items
-                if item['receipt_id'] == receipt_id and item['assigned_to'] != 'excluded'
-            )
-            if payer_id == uid:
-                paid_total += receipt_total
-            elif payer_id == 'both' and n == 2:
-                # Legacy 2-person receipts only; new receipts use a single payer id.
-                paid_total += receipt_total / 2
-
-        responsibility = personal_total + shared_share
-        net = paid_total - responsibility
-
+        d = acc[uid]
+        responsibility = d['personal'] + d['shared_owed']
+        net = d['paid'] - responsibility
         balances.append({
             'id': uid,
             'name': u['name'],
-            'personal_total': round(personal_total, 2),
-            'shared_share': round(shared_share, 2),
-            'paid_total': round(paid_total, 2),
+            'personal_total': round(d['personal'], 2),
+            'shared_share': round(d['shared_owed'], 2),
+            'paid_total': round(d['paid'], 2),
             'responsibility': round(responsibility, 2),
             'net': round(net, 2),
         })
 
     settlements = compute_settlements(balances)
-
     return {
         'users': balances,
-        'shared_total': round(shared_total, 2),
+        'shared_total': round(total_shared, 2),
         'settlements': settlements,
     }
 
@@ -916,6 +939,54 @@ def group_page():
     cursor.execute('SELECT id, name FROM users WHERE group_id = %s ORDER BY name', (current_user.group_id,))
     members = cursor.fetchall()
     return render_template('group.html', group=grp, members=members)
+
+
+@app.route('/group/remove_member', methods=['POST'])
+@login_required
+def remove_member():
+    user_id = request.form.get('user_id', '').strip()
+    if not user_id:
+        flash('No user specified.')
+        return redirect(url_for('group_page'))
+    if user_id == current_user.id:
+        flash("You can't remove yourself from the household.")
+        return redirect(url_for('group_page'))
+
+    db = get_db()
+    cursor = get_cursor()
+
+    # Confirm the target user actually belongs to this group
+    cursor.execute(
+        'SELECT id FROM users WHERE id = %s AND group_id = %s',
+        (user_id, current_user.group_id)
+    )
+    if not cursor.fetchone():
+        flash('Member not found in your household.')
+        return redirect(url_for('group_page'))
+
+    # Block removal if they paid for any receipts (would leave orphaned payer data)
+    cursor.execute(
+        'SELECT COUNT(*) AS c FROM receipts WHERE payer_id = %s AND group_id = %s',
+        (user_id, current_user.group_id)
+    )
+    paid_count = cursor.fetchone()['c']
+    if paid_count > 0:
+        flash(f"Can't remove — this member paid for {paid_count} receipt(s). "
+              f"Reassign those in History first.")
+        return redirect(url_for('group_page'))
+
+    # Reassign their personally-assigned items to shared, then detach from group
+    cursor.execute(
+        'UPDATE items SET assigned_to = %s '
+        'WHERE assigned_to = %s AND receipt_id IN '
+        '(SELECT id FROM receipts WHERE group_id = %s)',
+        ('shared', user_id, current_user.group_id)
+    )
+    cursor.execute('UPDATE users SET group_id = NULL WHERE id = %s', (user_id,))
+    db.commit()
+    flash('Member removed and their items reassigned to shared.')
+    return redirect(url_for('group_page'))
+
 
 @app.route("/logout")
 @login_required

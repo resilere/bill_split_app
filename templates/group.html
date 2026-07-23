@@ -1,17 +1,74 @@
 {% extends "base.html" %}
-{% block title %}My Household{% endblock %}
+{% block title %}My Household – Splight{% endblock %}
 {% block content %}
-<h1 style="margin-bottom: 10px;">{{ group.name }}</h1>
 
-<div style="max-width: 400px; margin-bottom: 25px; padding: 20px; border: 1px solid #ddd; border-radius: 10px; background-color: #fafafa;">
-    <p style="color: #555; margin-bottom: 10px;">Share this invite code with anyone you want to split bills with. They can enter it when registering to join this household.</p>
-    <code style="display: block; padding: 12px; background-color: #eef3fc; border-radius: 6px; font-size: 1.3em; font-weight: bold; letter-spacing: 2px; text-align: center; color: #1a73e8;">{{ group.invite_code }}</code>
+<h1>{{ group.name }}</h1>
+<p class="page-subtitle">Manage your household members and share your invite code.</p>
+
+<!-- Invite code card -->
+<div style="max-width: 460px; margin-bottom: 32px;">
+  <div class="card card-muted">
+    <p style="color: var(--text-muted); font-size: 0.88em; margin-bottom: 12px;">
+      Share this code with anyone you want to split bills with.
+      They enter it when registering to join this household.
+    </p>
+    <code style="
+      display: block;
+      padding: 14px;
+      background: #eef2ff;
+      border-radius: 8px;
+      font-size: 1.4em;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-align: center;
+      color: var(--primary);
+    ">{{ group.invite_code }}</code>
+  </div>
 </div>
 
-<h2 style="margin-bottom: 10px;">Members</h2>
-<ul>
-    {% for member in members %}
-    <li>{{ member.name }}</li>
-    {% endfor %}
-</ul>
+<!-- Members list -->
+<h2>Members</h2>
+<div style="max-width: 460px;">
+  {% for member in members %}
+  <div style="
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    background: var(--surface);
+  ">
+    <div style="
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: #eef2ff;
+      color: var(--primary);
+      font-weight: 700;
+      font-size: 0.95em;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    ">{{ member.name[0].upper() }}</div>
+
+    <span style="flex: 1; font-weight: 500;">{{ member.name }}</span>
+
+    {% if member.id == current_user.id %}
+      <span class="badge badge-success">You</span>
+    {% else %}
+      <form method="POST" action="{{ url_for('remove_member') }}"
+            onsubmit="return confirm('Remove {{ member.name }} from this household? Their items will be reassigned to shared.');">
+        <input type="hidden" name="user_id" value="{{ member.id }}">
+        <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+      </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<p style="margin-top: 16px; font-size: 0.83em; color: var(--text-muted);">
+  Removing a member detaches them from the household and reassigns their items to shared.
+  Members who paid for receipts must be reassigned in History before they can be removed.
+</p>
+
 {% endblock %}
