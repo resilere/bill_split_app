@@ -2,6 +2,27 @@
 {% block title %}History – Splight{% endblock %}
 {% block content %}
 
+<style>
+  /* Subtle per-item remove: muted by default, red only on hover */
+  .item-remove {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    opacity: 0.5;
+    cursor: pointer;
+    font-size: 0.9em;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 5px;
+    transition: color 0.15s, background 0.15s, opacity 0.15s;
+  }
+  .item-remove:hover {
+    color: var(--danger);
+    background: #fef2f2;
+    opacity: 1;
+  }
+</style>
+
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
   <div>
     <h1 style="margin-bottom:2px;">Receipt History</h1>
@@ -82,7 +103,7 @@
                     onsubmit="return confirm('Remove this item?');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="item_id" value="{{ item.id }}">
-                <button type="submit" class="btn btn-danger btn-sm" title="Remove item" style="padding:4px 9px;">✕</button>
+                <button type="submit" class="item-remove" title="Remove item">✕</button>
               </form>
             </td>
           </tr>
