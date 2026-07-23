@@ -1,113 +1,125 @@
 {% extends "base.html" %}
-{% block title %}Receipt History{% endblock %}
+{% block title %}History – Splight{% endblock %}
 {% block content %}
 
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-    <h1 style="margin: 0;">Receipt History</h1>
-    
-    <form method="GET" action="{{ url_for('history') }}" id="sortForm" style="background: #f0f4f8; padding: 10px 15px; border-radius: 8px; border: 1px solid #d1d9e0;">
-        <label for="sort_by" style="font-weight: bold; margin-right: 8px; color: #333;">Sort by:</label>
-        <select name="sort_by" id="sort_by" onchange="this.form.submit()" 
-                style="padding: 6px 10px; border-radius: 4px; border: 1px solid #ccc; cursor: pointer; background: white; font-size: 0.9em;">
-            <option value="upload_date" {% if current_sort == 'upload_date' %}selected{% endif %}>Last Added (Newest first)</option>
-            <option value="bill_date" {% if current_sort == 'bill_date' %}selected{% endif %}>Bill Date (Newest first)</option>
-            <option value="total" {% if current_sort == 'total' %}selected{% endif %}>Total Amount (Highest first)</option>
-        </select>
-    </form>
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+  <div>
+    <h1 style="margin-bottom:2px;">Receipt History</h1>
+    <p class="page-subtitle" style="margin-bottom:0;">All bills for your household.</p>
+  </div>
+  <form method="GET" action="{{ url_for('history') }}">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <label for="sort_by" style="font-size:0.85em; color:var(--text-muted); font-weight:600;">Sort by</label>
+      <select name="sort_by" id="sort_by" onchange="this.form.submit()" class="form-control" style="width:auto; padding:7px 10px;">
+        <option value="upload_date" {% if current_sort == 'upload_date' %}selected{% endif %}>Last Added</option>
+        <option value="bill_date"   {% if current_sort == 'bill_date'   %}selected{% endif %}>Bill Date</option>
+        <option value="total"       {% if current_sort == 'total'       %}selected{% endif %}>Total Amount</option>
+      </select>
+    </div>
+  </form>
 </div>
 
 {% if receipts %}
-    {% for receipt in receipts %}
-    <div style="border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 8px; background-color: #fafafa; position: relative;">
-        
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
-            <div>
-                <h3 style="margin: 0; color: #1a73e8;">Receipt #{{ receipt.id }}</h3>
-                <small style="color: #666;">Uploaded on: {{ receipt.upload_date }}</small>
-            </div>
-            <div style="text-align: right;">
-                {% if receipt.date and receipt.date != 'Unknown' and receipt.date != '' %}
-                    <p style="margin: 0; font-weight: bold;">Date: {{ receipt.date }}</p>
-                {% else %}
-                    <form action="{{ url_for('update_receipt_date') }}" method="POST" style="display: inline-flex; align-items: center; gap: 5px;">
-                        <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
-                        <input type="date" name="bill_date" required style="padding: 2px; font-size: 0.8em; border: 1px solid #f44336;">
-                        <button type="submit" style="background: #4CAF50; color: white; border: none; padding: 3px 7px; border-radius: 3px; cursor: pointer; font-size: 0.75em;">Set Date</button>
-                    </form>
-                    <p style="margin: 0; color: #f44336; font-size: 0.75em;">Missing Date!</p>
-                {% endif %}
-                <p style="margin: 0; color: #555;">Paid by: <span style="text-transform: capitalize;">{{ receipt.payer }}</span></p>
-            </div>
-        </div>
-        
-        <table style="width: 100%; border-collapse: collapse; background: white;">
-            <thead>
-                <tr style="background-color: #e0e0e0;">
-                    <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Item</th>
-                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd; width: 100px;">Price</th>
-                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd; width: 150px;">Assigned To</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in receipt["items"] %}
-                <tr>
-                    <td style="padding: 8px 10px; border-bottom: 1px solid #eee;">{{ item.description }}</td>
-                    <td style="padding: 8px 10px; text-align: right; border-bottom: 1px solid #eee;">€{{ "%.2f"|format(item.price) }}</td>
-                    <td style="padding: 8px 10px; text-align: right; border-bottom: 1px solid #eee; text-transform: capitalize;">{{ item.assigned_to }}</td>
-                </tr>
-                {% endfor %}
-                
-                <tr style="background-color: #fff9e6;">
-                    <form action="{{ url_for('add_missing_item') }}" method="POST">
-                        <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
-                        <td style="padding: 8px 10px;">
-                            <input type="text" name="description" placeholder="Add missing item..." required style="width: 90%; padding: 4px;">
-                        </td>
-                        <td style="padding: 8px 10px; text-align: right;">
-                            <input type="number" step="0.01" name="price" placeholder="0.00" required style="width: 70px; text-align: right; padding: 4px;">
-                        </td>
-                        <td style="padding: 8px 10px; text-align: right;">
-                            <select name="assigned_to" style="padding: 4px;">
-                                <option value="shared">Shared</option>
-                                {% for u in all_users %}
-                                <option value="{{ u.id }}">{{ u.name }}</option>
-                                {% endfor %}
-                            </select>
-                            <button type="submit" style="background: #1a73e8; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; margin-left: 5px;">+</button>
-                        </td>
-                    </form>
-                </tr>
-            </tbody>
-            <tfoot>
-                <tr>
-                    <td colspan="3" style="padding: 10px; text-align: right; font-weight: bold; background-color: #f0f0f0; border-top: 2px solid #ddd;">
-                        <span style="color: #555; font-weight: normal; margin-right: 15px;">
-                            {% for u in all_users %}
-                            {{ u.name }}: €{{ "%.2f"|format(receipt.totals_by_user.get(u.id, 0)) }} |
-                            {% endfor %}
-                            Shared: €{{ "%.2f"|format(receipt.shared_total) }}
-                        </span>
-                        <span style="font-size: 1.1em; color: #1a73e8; border-left: 2px solid #ccc; padding-left: 15px;">
-                            Receipt Total: €{{ "%.2f"|format(receipt.total) }}
-                        </span>
-                    </td>
-                </tr>
-            </tfoot>
-        </table>
+  {% for receipt in receipts %}
+  <div style="border:1px solid var(--border); border-radius:12px; margin-bottom:20px; overflow:hidden;">
 
-        <form method="POST" action="{{ url_for('remove_receipt') }}" style="margin-top: 10px;" onsubmit="return confirm('Are you sure you want to delete this receipt? This action cannot be undone.');">
+    <!-- Receipt header -->
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 20px; background:#f8fafc; border-bottom:1px solid var(--border); flex-wrap:wrap; gap:8px;">
+      <div>
+        <span style="font-weight:700; color:var(--primary);">Receipt #{{ receipt.id }}</span>
+        <span style="color:var(--text-muted); font-size:0.82em; margin-left:10px;">Added {{ receipt.upload_date }}</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+        {% if receipt.date and receipt.date != 'Unknown' and receipt.date != '' %}
+          <span class="badge badge-accent">{{ receipt.date }}</span>
+        {% else %}
+          <form action="{{ url_for('update_receipt_date') }}" method="POST" style="display:flex; align-items:center; gap:6px;">
             <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
-            <button type="submit" style="background-color: #f44336; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85em; transition: opacity 0.2s;">
-                🗑 Remove Receipt
-            </button>
-        </form>
+            <input type="date" name="bill_date" required class="form-control" style="width:150px; padding:5px 8px; font-size:0.83em;">
+            <button type="submit" class="btn btn-success btn-sm">Set</button>
+          </form>
+          <span style="color:var(--danger); font-size:0.78em; font-weight:600;">Missing date</span>
+        {% endif %}
+        <span style="color:var(--text-muted); font-size:0.88em;">
+          Paid by <strong style="color:var(--text);">{{ receipt.payer }}</strong>
+        </span>
+      </div>
     </div>
-    {% endfor %}
+
+    <!-- Items table -->
+    <div style="overflow-x:auto;">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="text-right" style="width:100px;">Price</th>
+            <th class="text-right" style="width:140px;">Assigned To</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in receipt["items"] %}
+          <tr>
+            <td>{{ item.description }}</td>
+            <td class="text-right">€{{ "%.2f"|format(item.price) }}</td>
+            <td class="text-right" style="text-transform:capitalize; color:var(--text-muted);">{{ item.assigned_to }}</td>
+          </tr>
+          {% endfor %}
+
+          <!-- Add missing item row -->
+          <tr style="background:#fffbeb;">
+            <form action="{{ url_for('add_missing_item') }}" method="POST">
+              <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
+              <td><input type="text" name="description" placeholder="Add missing item…" required
+                         style="width:95%; padding:5px 8px; border:1px solid var(--border); border-radius:5px; font-size:0.88em;"></td>
+              <td><input type="number" step="0.01" name="price" placeholder="0.00" required
+                         style="width:75px; text-align:right; padding:5px 8px; border:1px solid var(--border); border-radius:5px; font-size:0.88em;"></td>
+              <td style="text-align:right;">
+                <select name="assigned_to" style="padding:5px 8px; border:1px solid var(--border); border-radius:5px; font-size:0.85em; margin-right:4px;">
+                  <option value="shared">Shared</option>
+                  {% for u in all_users %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
+                </select>
+                <button type="submit" class="btn btn-primary btn-sm">+</button>
+              </td>
+            </form>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3" class="text-right" style="padding:10px 12px;">
+              <span style="color:var(--text-muted); font-weight:400; font-size:0.88em; margin-right:14px;">
+                {% for u in all_users %}
+                {{ u.name }}: €{{ "%.2f"|format(receipt.totals_by_user.get(u.id, 0)) }}
+                {% if not loop.last %}&nbsp;·&nbsp;{% endif %}
+                {% endfor %}
+                &nbsp;·&nbsp; Shared: €{{ "%.2f"|format(receipt.shared_total) }}
+              </span>
+              <span style="font-size:1.05em; font-weight:700; color:var(--primary);">
+                Total: €{{ "%.2f"|format(receipt.total) }}
+              </span>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- Delete -->
+    <div style="padding:10px 16px; background:#f8fafc; border-top:1px solid var(--border); text-align:right;">
+      <form method="POST" action="{{ url_for('remove_receipt') }}"
+            onsubmit="return confirm('Delete this receipt? This cannot be undone.');">
+        <input type="hidden" name="receipt_id" value="{{ receipt.id }}">
+        <button type="submit" class="btn btn-danger btn-sm">🗑 Remove Receipt</button>
+      </form>
+    </div>
+
+  </div>
+  {% endfor %}
+
 {% else %}
-    <div style="text-align: center; padding: 40px; border: 2px dashed #ccc; border-radius: 8px;">
-        <p style="font-size: 1.2em; color: #666;">No receipts found matching your selection.</p>
-        <a href="{{ url_for('index') }}" style="display: inline-block; margin-top: 10px; padding: 10px 20px; background-color: #1a73e8; color: white; text-decoration: none; border-radius: 5px;">Upload a New Bill</a>
-    </div>
+  <div style="text-align:center; padding:48px 24px; border:2px dashed var(--border); border-radius:12px; color:var(--text-muted);">
+    <div style="font-size:2.5em; margin-bottom:12px;">🧾</div>
+    <p style="font-size:1.05em; margin-bottom:16px;">No receipts yet.</p>
+    <a href="{{ url_for('index') }}" class="btn btn-primary">Upload your first bill</a>
+  </div>
 {% endif %}
 
 {% endblock %}

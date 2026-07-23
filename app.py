@@ -582,87 +582,73 @@ def index():
     """Main route to upload a bill."""
     return render_template('index.html')
 
-@app.route('/upload', methods=['GET','POST'])
+OCR_CONFIG = r'--oem 3 --psm 4 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÖÜäöüß€%.,:-/ '
+
+
+def _process_one_file(file):
+    """OCR-process a single uploaded file. Returns a result dict or None on error."""
+    file_bytes = file.read()
+    ext = file.filename.rsplit('.', 1)[-1].lower()
+    unique_filename = str(uuid.uuid4())
+    extracted_text = ""
+    image_path_for_display = None
+
+    date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
+    bill_date = date_match.group(0) if date_match else 'Unknown Date'
+    logging.info(f"Processing upload: {file.filename} ({len(file_bytes)/1024:.1f} KB)")
+
+    try:
+        if ext in ('png', 'jpg', 'jpeg', 'gif'):
+            img = Image.open(io.BytesIO(file_bytes))
+            processed_img = preprocess_image(img)
+            image_path_for_display = f"{unique_filename}.png"
+            processed_img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
+            logging.info("Running OCR on image...")
+            extracted_text = pytesseract.image_to_string(processed_img, lang='deu+eng', config=OCR_CONFIG)
+            logging.info("OCR complete.")
+        elif ext == 'pdf':
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        extracted_text += page_text + "\n--PAGE BREAK--\n"
+                image_path_for_display = f"{unique_filename}.png"
+                pdf.pages[0].to_image(resolution=150).save(
+                    os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display)
+                )
+                logging.info(f"PDF processed ({len(pdf.pages)} pages).")
+        else:
+            flash(f'Unsupported file type: {ext}')
+            return None
+    except Exception as e:
+        flash(f"Error processing {file.filename}: {e}")
+        logging.exception(f"Error processing {file.filename}")
+        return None
+
+    parsed_items = parse_bill_text(extracted_text)
+    return {
+        'filename': file.filename,
+        'bill_date': bill_date,
+        'parsed_items': parsed_items,
+        'total_sum': round(sum(i['price'] for i in parsed_items), 2),
+        'image_path': url_for('uploaded_file', filename=image_path_for_display) if image_path_for_display else None,
+    }
+
+
+@app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def upload_bill():
-    """Handles file uploads and performs OCR, then sends to bill details page."""
-    if 'bill_image' not in request.files:
-        flash('No file part')
-        logging.warning("Upload attempt without file part")
+    """Accepts one or more files, OCRs them all, and forwards to the assignment page."""
+    files = [f for f in request.files.getlist('bill_image') if f.filename]
+    if not files:
+        flash('No files selected.')
         return redirect(request.url)
-    file = request.files['bill_image']
-    if file.filename == '':
-        flash('No selected file')
-        logging.warning("No selected file")
-        return redirect(request.url)
-    if file:
-        file_bytes = file.read()
-        file_extension = file.filename.split('.')[-1].lower()
-        unique_filename = f"{uuid.uuid4()}"
-        image_path_for_display = None
-        extracted_text = ""
-         # Extract bill date from filename
-        date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
-        bill_date = date_match.group(0) if date_match else 'Unknown Date'
-        logging.info(f"Received upload: {file.filename} ({len(file_bytes)/1024:.1f} KB)")
-        custom_config = r'--oem 3 --psm 4 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÄÖÜäöüß€%.,:-/ '
-        try:
-            if file_extension in ['png', 'jpg', 'jpeg', 'gif']:
-                logging.info("Processing image upload...")
-                img = Image.open(io.BytesIO(file_bytes))
-                #img = img.convert('RGB')
-                #img.thumbnail((2000, 2000))
-                processed_img = preprocess_image(img)
-                image_path_for_display = f"{unique_filename}.png"
-                processed_img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
-                logging.info("Running OCR on image...")
-                extracted_text = pytesseract.image_to_string(processed_img, lang='deu+eng', config=custom_config)
-                
-                logging.info("OCR complete for image.")
 
-            elif file_extension == 'pdf':
-                logging.info("Processing PDF upload with pdfplumber...")
-                try:
-                    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-                        for i, page in enumerate(pdf.pages):
-                            page_text = page.extract_text()
-                            if page_text:
-                                extracted_text += page_text + "\n--PAGE BREAK--\n"
-                        
-                        # Save first page as image preview
-                        first_page = pdf.pages[0]
-                        image_path_for_display = f"{unique_filename}.png"
-                        first_page.to_image(resolution=150).save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
-                        logging.info(f"PDF processed, extracted text from {len(pdf.pages)} pages.")
-                except Exception as e:
-                    flash(f"Error processing PDF: {e}.")
-                    logging.exception("PDF processing error")
-                    return redirect(request.url)
+    receipts = [r for r in (_process_one_file(f) for f in files) if r is not None]
+    if not receipts:
+        return redirect(url_for('index'))
 
-            else:
-                flash('Unsupported file type.')
-                logging.error(f"Unsupported file type: {file_extension}")
-                return redirect(request.url)
-
-        except Exception as e:
-            flash(f"Error processing PDF: {e}. Make sure the PDF is not an image.")   
-            logging.exception("Error during file processing")
-            return redirect(request.url)
-
-        parsed_items = parse_bill_text(extracted_text)
-
-        # Calculate a total sum to display on the result page
-        total_sum = sum(item['price'] for item in parsed_items)
-
-        # Store the image path in a session or pass it hidden if needed for later, 
-        # but for now we just pass it to the result template.
-        return render_template('bill_details.html',
-                               parsed_items=parsed_items, 
-                               filename=file.filename,
-                               total_sum=total_sum,
-                               bill_date=bill_date,
-                               image_path=url_for('uploaded_file', filename=image_path_for_display))
-    return redirect(url_for('index'))
+    return render_template('bill_details.html', receipts=receipts)
 
 @app.route('/uploads/<filename>')
 @login_required
@@ -674,67 +660,63 @@ def uploaded_file(filename):
 @app.route('/save_details', methods=['POST'])
 @login_required
 def save_details():
-    """Saves the assigned bill items to the database and redirects to the confirmation page."""
+    """Saves one or more assigned receipts and their items to the database."""
+    db = None
     try:
         db = get_db()
         cursor = get_cursor()
+        receipt_count = int(request.form.get('receipt_count', 1))
 
-        payer_id = request.form['payer_id']
-        filename = request.form.get('filename')  # Make sure your form passes this
-        raw_date = request.form.get('bill_date')  # Also passed from form
-        # If it's invalid, set it to None so Postgres accepts it as a NULL value
-        if not raw_date or raw_date == "Unknown Date":
-            bill_date = None 
-        else:
-            bill_date = raw_date
-        # Insert the new receipt with RETURNING id to get receipt_id
-        cursor.execute(
-            'INSERT INTO receipts (payer_id, filename, bill_date, group_id) VALUES (%s, %s, %s, %s) RETURNING id',
-            (payer_id, filename, bill_date, current_user.group_id)
-        )
-        receipt_id = cursor.fetchone()['id']
+        for ri in range(receipt_count):
+            pfx = f'r{ri}_'
+            payer_id = request.form[f'{pfx}payer_id']
+            filename = request.form.get(f'{pfx}filename')
+            raw_date = request.form.get(f'{pfx}bill_date')
+            bill_date = None if (not raw_date or raw_date == 'Unknown Date') else raw_date
 
-        total = 0.0
+            cursor.execute(
+                'INSERT INTO receipts (payer_id, filename, bill_date, group_id) VALUES (%s, %s, %s, %s) RETURNING id',
+                (payer_id, filename, bill_date, current_user.group_id)
+            )
+            receipt_id = cursor.fetchone()['id']
+            total = 0.0
 
-        # Loop through ALL form items
-        for key, value in request.form.items():
-            # Check for BOTH standard parsed items AND manual items
-            is_parsed = key.startswith('assigned_to_')
-            is_manual = key.startswith('manual_assigned_to_')
-
-            if is_parsed or is_manual:
+            for key, value in request.form.items():
+                if not key.startswith(pfx):
+                    continue
+                sub = key[len(pfx):]
+                is_parsed = sub.startswith('assigned_to_')
+                is_manual = sub.startswith('manual_assigned_to_')
+                if not (is_parsed or is_manual):
+                    continue
                 assigned_to = value
-                index_str = key.split('_')[-1]
+                idx = sub.split('_')[-1]
+                if assigned_to == 'excluded':
+                    continue
+                if is_manual:
+                    desc = request.form.get(f'{pfx}manual_description_{idx}')
+                    price_str = request.form.get(f'{pfx}manual_price_{idx}')
+                else:
+                    desc = request.form.get(f'{pfx}item_description_{idx}')
+                    price_str = request.form.get(f'{pfx}item_price_{idx}')
+                if desc and price_str:
+                    price = float(price_str)
+                    total += price
+                    cursor.execute(
+                        'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (%s, %s, %s, %s)',
+                        (receipt_id, desc, price, assigned_to)
+                    )
 
-                if assigned_to != 'excluded':
-                    # Determine prefix based on item type
-                    prefix = "manual_" if is_manual else ""
-                    
-                    description = request.form.get(f'{prefix}item_description_{index_str}')
-                    # Note: Your HTML uses "manual_description_", but parsed uses "item_description_"
-                    # To be safe, let's handle the specific manual naming:
-                    if is_manual:
-                        description = request.form.get(f'manual_description_{index_str}')
-                        price_str = request.form.get(f'manual_price_{index_str}')
-                    else:
-                        description = request.form.get(f'item_description_{index_str}')
-                        price_str = request.form.get(f'item_price_{index_str}')
+            cursor.execute('UPDATE receipts SET total = %s WHERE id = %s', (total, receipt_id))
 
-                    if description and price_str:
-                        price = float(price_str)
-                        total += price
-                        cursor.execute(
-                            'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (%s, %s, %s, %s)',
-                            (receipt_id, description, price, assigned_to)
-                        )
-
-        cursor.execute('UPDATE receipts SET total = %s WHERE id = %s', (total, receipt_id))
         db.commit()
-        flash('Bill saved successfully!')
+        msg = f'{receipt_count} bills saved!' if receipt_count > 1 else 'Bill saved!'
+        flash(msg)
         return redirect(url_for('balances'))
 
     except Exception as e:
-        if db: db.rollback()
+        if db:
+            db.rollback()
         logging.error(f"Error in save_details: {e}")
         flash(f'An error occurred: {e}')
         return redirect(url_for('index'))

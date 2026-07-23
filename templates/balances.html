@@ -1,72 +1,98 @@
 {% extends "base.html" %}
-{% block title %}Current Balances{% endblock %}
-
+{% block title %}Balances – Splight{% endblock %}
 {% block content %}
+
 <h1>Current Balances</h1>
+<p class="page-subtitle">What everyone owes based on all receipts.</p>
 
-<!-- Breakdown Table -->
-<table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-    <thead>
-        <tr style="background-color: #e0e0e0;">
-            <th style="padding: 10px; text-align: left;">Category</th>
-            {% for u in balance.users %}
-            <th style="padding: 10px; text-align: right;">{{ u.name }} (€)</th>
-            {% endfor %}
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td style="padding: 10px;">Personal Items Total</td>
-            {% for u in balance.users %}
-            <td style="padding: 10px; text-align: right;">{{ "%.2f"|format(u.personal_total) }}</td>
-            {% endfor %}
-        </tr>
-        <tr>
-            <td style="padding: 10px;">Shared Items Total (split {{ balance.users|length }}-way)</td>
-            {% for u in balance.users %}
-            <td style="padding: 10px; text-align: right;">{{ "%.2f"|format(u.shared_share) }}</td>
-            {% endfor %}
-        </tr>
-        <tr>
-            <td style="padding: 10px;">Amount Paid</td>
-            {% for u in balance.users %}
-            <td style="padding: 10px; text-align: right;">{{ "%.2f"|format(u.paid_total) }}</td>
-            {% endfor %}
-        </tr>
-        <tr style="font-weight: bold; background-color: #f0f0f0;">
-            <td style="padding: 10px;">Net Responsibility</td>
-            {% for u in balance.users %}
-            <td style="padding: 10px; text-align: right;">{{ "%.2f"|format(u.responsibility) }}</td>
-            {% endfor %}
-        </tr>
-    </tbody>
-</table>
-
-<!-- Settlements -->
+<!-- Settlements (most important — top of page) -->
 {% if balance.settlements %}
-<div style="background-color: #e3f2fd; border: 1px solid #90caf9; padding: 20px; border-radius: 8px; font-size: 1.2em;">
-    {% for s in balance.settlements %}
-    <p style="text-align: center; margin: 10px 0;">
-        <strong>{{ s.from_name }}</strong> owes <strong>{{ s.to_name }}</strong>:
-        <span style="font-size: 1.4em; color: #1a73e8;">€{{ "%.2f"|format(s.amount) }}</span>
-    </p>
-    {% endfor %}
+<div style="margin-bottom: 28px;">
+  {% for s in balance.settlements %}
+  <div style="
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px 22px;
+    background: linear-gradient(135deg, #eef2ff 0%, #f0fdf4 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  ">
+    <span style="font-size: 1.4em;">💸</span>
+    <div style="flex: 1;">
+      <span style="font-weight: 600;">{{ s.from_name }}</span>
+      <span style="color: var(--text-muted);"> owes </span>
+      <span style="font-weight: 600;">{{ s.to_name }}</span>
+    </div>
+    <span style="font-size: 1.5em; font-weight: 700; color: var(--primary);">€{{ "%.2f"|format(s.amount) }}</span>
+  </div>
+  {% endfor %}
 </div>
 {% else %}
-<div style="background-color: #e8f5e9; border: 1px solid #a5d6a7; padding: 20px; border-radius: 8px; font-size: 1.2em; text-align: center;">
-    <p>🎉 Everything is settled! The current balance is €0.00.</p>
+<div style="
+  padding: 22px 24px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 12px;
+  text-align: center;
+  margin-bottom: 28px;
+  font-size: 1.05em;
+  color: #065f46;
+  font-weight: 500;
+">
+  🎉 All settled — no one owes anything right now.
 </div>
 {% endif %}
 
-<!-- Quick Actions -->
-<h2 style="margin-top: 40px;">What's Next?</h2>
-<div style="display: flex; gap: 15px;">
-    <a href="{{ url_for('history') }}" style="background-color: #ff9800; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">
-        Review History
-    </a>
-    <a href="{{ url_for('index') }}" style="background-color: #607d8b; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px;">
-        Add New Bill
-    </a>
+<!-- Breakdown table -->
+<h2>Breakdown</h2>
+<div style="overflow-x: auto;">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Category</th>
+        {% for u in balance.users %}
+        <th class="text-right">{{ u.name }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Personal items</td>
+        {% for u in balance.users %}
+        <td class="text-right">€{{ "%.2f"|format(u.personal_total) }}</td>
+        {% endfor %}
+      </tr>
+      <tr>
+        <td>Shared items (split {{ balance.users|length }}-way)</td>
+        {% for u in balance.users %}
+        <td class="text-right">€{{ "%.2f"|format(u.shared_share) }}</td>
+        {% endfor %}
+      </tr>
+      <tr>
+        <td>Amount paid</td>
+        {% for u in balance.users %}
+        <td class="text-right">€{{ "%.2f"|format(u.paid_total) }}</td>
+        {% endfor %}
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td>Net responsibility</td>
+        {% for u in balance.users %}
+        <td class="text-right">€{{ "%.2f"|format(u.responsibility) }}</td>
+        {% endfor %}
+      </tr>
+    </tfoot>
+  </table>
+</div>
+
+<hr class="divider">
+<div style="display: flex; gap: 12px; flex-wrap: wrap;">
+  <a href="{{ url_for('history') }}" class="btn btn-primary">Review History</a>
+  <a href="{{ url_for('index') }}" class="btn btn-ghost">Upload New Bill</a>
 </div>
 
 {% endblock %}

@@ -1,121 +1,212 @@
 {% extends "base.html" %}
 {% block title %}Assign Bill Items{% endblock %}
 {% block content %}
-<h1 style="margin-bottom: 5px;">Review & Assign Items</h1>
-<p style="margin-bottom: 20px; color: #555;">File uploaded: {{ filename }} | Estimated Total: €{{ "%.2f"|format(total_sum) }}</p>
 
-<div style="display: flex; gap: 30px;">
-    <div style="flex: 1; min-width: 300px;">
-        <h2 style="margin-top: 0; border-bottom: none; padding-bottom: 0;">Original Receipt Snapshot</h2>
-        {% if image_path %}
-            <img src="{{ image_path }}" alt="Receipt Snapshot" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);">
-        {% else %}
-            <p>No image snapshot available.</p>
-        {% endif %}
-    </div>
-    
-    <div style="flex: 2;">
-        <h2 style="margin-top: 0; border-bottom: none; padding-bottom: 0;">Assignment Form</h2>
-        <form method="POST" action="{{ url_for('save_details') }}">
-            <!-- Hidden fields for filename and bill date -->
-            <input type="hidden" name="filename" value="{{ filename }}">
-            <input type="hidden" name="bill_date" value="{{ bill_date }}">
-            
-            <!-- Payer Selection -->
-            <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background-color: #f9f9f9;">
-                <label for="payer_id" style="font-weight: bold; display: block; margin-bottom: 10px; color: #1a73e8;">Who Paid the Bill?</label>
-                <select name="payer_id" id="payer_id" required
-                        style="padding: 10px; border: 1px solid #ccc; border-radius: 4px; width: 100%;">
-                    {% for u in all_users %}
-                    <option value="{{ u.id }}">{{ u.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <!-- Manual Items Section -->
-            <h3>Add Missing Items Manually</h3>
-            <table id="manual-items-table" style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-                <thead>
-                    <tr style="background-color: #e0e0e0;">
-                        <th style="padding: 10px; text-align: left;">Description</th>
-                        <th style="padding: 10px; text-align: right; width: 80px;">Price (€)</th>
-                        <th style="padding: 10px; text-align: center; width: 250px;">Assign To</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody id="manual-items-body">
-                    <!-- JS will add rows here -->
-                </tbody>
-            </table>
-            <button type="button" onclick="addManualItem()" 
-                    style="padding: 8px 15px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; margin-bottom: 20px;">
-                Add Item
-            </button>
-
-            <script>
-            const ALL_USERS = {{ all_users | tojson }};
-            function addManualItem() {
-                const tableBody = document.getElementById('manual-items-body');
-                const index = tableBody.rows.length;
-                const row = document.createElement('tr');
-                const userOptions = ALL_USERS.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
-                row.innerHTML = `
-                    <td><input type="text" name="manual_description_${index}" placeholder="Item description" required style="width: 95%; border: 1px solid #ccc; border-radius: 4px; padding: 5px;"></td>
-                    <td><input type="number" step="0.01" name="manual_price_${index}" placeholder="0.00" required style="width: 70px; text-align: right; border: 1px solid #ccc; border-radius: 4px; padding: 5px;"></td>
-                    <td>
-                        <select name="manual_assigned_to_${index}" required>
-                            ${userOptions}
-                            <option value="shared" selected>Shared</option>
-                            <option value="excluded">Exclude</option>
-                        </select>
-                    </td>
-                    <td><button type="button" onclick="this.closest('tr').remove()" style="background: #f44336; color: white; border: none; padding: 5px 10px; border-radius: 4px;">Remove</button></td>
-                `;
-                tableBody.appendChild(row);
-            }
-            </script>
-
-            <!-- Parsed Items Table -->
-            <h3>Parsed Items</h3>
-            <table style="width: 100%; border-collapse: collapse;">
-                <thead>
-                    <tr style="background-color: #e0e0e0;">
-                        <th style="padding: 10px; text-align: left;">Item Description</th>
-                        <th style="padding: 10px; text-align: right; width: 80px;">Price (€)</th>
-                        <th style="padding: 10px; text-align: center; width: 250px;">Assign To</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in parsed_items %}
-                    {% set item_index = loop.index0 %}
-                    <tr style="border-bottom: 1px solid #eee;">
-                        <td style="padding: 10px;">
-                            <input type="text" name="item_description_{{ item_index }}" value="{{ item.description }}" readonly
-                                   style="width: 95%; border: none; background: transparent;">
-                        </td>
-                        <td style="padding: 10px; text-align: right;">
-                            <input type="number" step="0.01" name="item_price_{{ item_index }}" value="{{ '%.2f'|format(item.price) }}" required
-                                   style="width: 70px; text-align: right; border: 1px solid #ccc; border-radius: 4px; padding: 5px;">
-                        </td>
-                        <td style="padding: 10px; text-align: center;">
-                            <div style="display: flex; flex-wrap: wrap; justify-content: space-around; gap: 5px;">
-                                {% for u in all_users %}
-                                <label><input type="radio" name="assigned_to_{{ item_index }}" value="{{ u.id }}"> {{ u.name }}</label>
-                                {% endfor %}
-                                <label><input type="radio" name="assigned_to_{{ item_index }}" value="shared" checked> Shared</label>
-                                <label><input type="radio" name="assigned_to_{{ item_index }}" value="excluded" style="color: #f44336;"> Exclude</label>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-
-            <button type="submit" style="margin-top: 30px; padding: 12px 25px; background-color: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1.1em;">
-                Save and Calculate Balances
-            </button>
-        </form>
-    </div>
+<div style="display:flex; align-items:baseline; gap:14px; margin-bottom:4px;">
+  <h1>Review &amp; Assign Items</h1>
+  {% if receipts|length > 1 %}
+  <span class="badge badge-accent">{{ receipts|length }} receipts</span>
+  {% endif %}
 </div>
+<p class="page-subtitle">
+  Assign each item to a person or mark it shared before saving.
+</p>
 
+<form method="POST" action="{{ url_for('save_details') }}" id="assignForm">
+  <input type="hidden" name="receipt_count" value="{{ receipts|length }}">
+
+  {% for receipt in receipts %}
+  {% set ri = loop.index0 %}
+
+  <!-- Per-receipt hidden metadata -->
+  <input type="hidden" name="r{{ ri }}_filename" value="{{ receipt.filename }}">
+  <input type="hidden" name="r{{ ri }}_bill_date" value="{{ receipt.bill_date }}">
+
+  <div class="receipt-block" style="
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    margin-bottom: 24px;
+    overflow: hidden;
+  ">
+    <!-- Header / toggle -->
+    <div class="receipt-header" onclick="toggleReceipt({{ ri }})" style="
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      background: #f8fafc;
+      cursor: pointer;
+      user-select: none;
+      border-bottom: 1px solid var(--border);
+    ">
+      <span style="font-size:1.3em;">📄</span>
+      <div style="flex:1;">
+        <span style="font-weight:600; color:var(--text);">{{ receipt.filename }}</span>
+        {% if receipt.bill_date and receipt.bill_date != 'Unknown Date' %}
+        <span style="color:var(--text-muted); font-size:0.85em; margin-left:8px;">{{ receipt.bill_date }}</span>
+        {% endif %}
+      </div>
+      <span class="badge badge-primary" style="font-size:0.85em;">
+        €{{ "%.2f"|format(receipt.total_sum) }}
+        · {{ receipt.parsed_items|length }} items
+      </span>
+      {% if receipts|length > 1 %}
+      <span id="toggle-icon-{{ ri }}" style="color:var(--text-muted); font-size:0.85em; margin-left:4px;">▲</span>
+      {% endif %}
+    </div>
+
+    <!-- Body (collapsible) -->
+    <div id="receipt-body-{{ ri }}" style="padding: 20px;">
+      <div style="display:flex; gap:28px; flex-wrap:wrap;">
+
+        <!-- Image preview -->
+        {% if receipt.image_path %}
+        <div style="flex:0 0 200px;">
+          <img src="{{ receipt.image_path }}" alt="Receipt" style="
+            width:200px; height:auto;
+            border-radius:8px;
+            border:1px solid var(--border);
+            box-shadow:0 2px 8px rgba(0,0,0,0.06);
+          ">
+        </div>
+        {% endif %}
+
+        <!-- Assignment panel -->
+        <div style="flex:1; min-width:280px;">
+
+          <!-- Payer -->
+          <div class="form-group">
+            <label class="form-label">Who paid?</label>
+            <select name="r{{ ri }}_payer_id" class="form-control" style="max-width:280px;">
+              {% for u in all_users %}
+              <option value="{{ u.id }}">{{ u.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Parsed items table -->
+          {% if receipt.parsed_items %}
+          <h3 style="margin-top:18px;">Parsed Items</h3>
+          <table class="table" style="margin-bottom:16px;">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th class="text-right" style="width:90px;">Price (€)</th>
+                <th style="width:260px;">Assign To</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in receipt.parsed_items %}
+              {% set ji = loop.index0 %}
+              <tr>
+                <td>
+                  <input type="hidden"  name="r{{ ri }}_item_description_{{ ji }}" value="{{ item.description }}">
+                  <span style="font-size:0.9em;">{{ item.description }}</span>
+                </td>
+                <td class="text-right">
+                  <input type="number" step="0.01"
+                         name="r{{ ri }}_item_price_{{ ji }}"
+                         value="{{ '%.2f'|format(item.price) }}"
+                         style="width:72px; text-align:right; padding:4px 6px; border:1px solid var(--border); border-radius:5px; font-size:0.88em;">
+                </td>
+                <td>
+                  <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.85em;">
+                    {% for u in all_users %}
+                    <label style="display:flex; align-items:center; gap:3px; cursor:pointer;">
+                      <input type="radio" name="r{{ ri }}_assigned_to_{{ ji }}" value="{{ u.id }}"> {{ u.name }}
+                    </label>
+                    {% endfor %}
+                    <label style="display:flex; align-items:center; gap:3px; cursor:pointer;">
+                      <input type="radio" name="r{{ ri }}_assigned_to_{{ ji }}" value="shared" checked> Shared
+                    </label>
+                    <label style="display:flex; align-items:center; gap:3px; cursor:pointer; color:var(--text-muted);">
+                      <input type="radio" name="r{{ ri }}_assigned_to_{{ ji }}" value="excluded"> Exclude
+                    </label>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div style="padding:16px; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; margin-bottom:16px; font-size:0.88em; color:#92400e;">
+            No items were automatically extracted — add them manually below.
+          </div>
+          {% endif %}
+
+          <!-- Manual items -->
+          <h3>Add Missing Items</h3>
+          <table class="table" id="manual-table-{{ ri }}" style="margin-bottom:10px;">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th class="text-right" style="width:90px;">Price (€)</th>
+                <th style="width:240px;">Assign To</th>
+                <th style="width:36px;"></th>
+              </tr>
+            </thead>
+            <tbody id="manual-body-{{ ri }}"></tbody>
+          </table>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addManualItem({{ ri }})">
+            + Add item
+          </button>
+
+        </div><!-- /assignment panel -->
+      </div><!-- /flex row -->
+    </div><!-- /receipt-body -->
+  </div><!-- /receipt-block -->
+  {% endfor %}
+
+  <!-- Submit -->
+  <hr class="divider">
+  <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+    <button type="submit" class="btn btn-success btn-lg">
+      {% if receipts|length > 1 %}Save {{ receipts|length }} Receipts{% else %}Save Receipt{% endif %}
+    </button>
+    <span style="color:var(--text-muted); font-size:0.85em;">
+      Total across all receipts:
+      <strong>€{{ "%.2f"|format(receipts|sum(attribute='total_sum')) }}</strong>
+    </span>
+  </div>
+</form>
+
+<script>
+const ALL_USERS = {{ all_users | tojson }};
+
+function addManualItem(ri) {
+  const body  = document.getElementById(`manual-body-${ri}`);
+  const idx   = body.rows.length;
+  const pfx   = `r${ri}_`;
+  const opts  = ALL_USERS.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+  const row   = document.createElement('tr');
+  row.innerHTML = `
+    <td><input type="text" name="${pfx}manual_description_${idx}" placeholder="Description" required
+               style="width:100%; padding:5px 8px; border:1px solid var(--border); border-radius:5px; font-size:0.88em;"></td>
+    <td><input type="number" step="0.01" name="${pfx}manual_price_${idx}" placeholder="0.00" required
+               style="width:72px; text-align:right; padding:5px 6px; border:1px solid var(--border); border-radius:5px; font-size:0.88em;"></td>
+    <td>
+      <select name="${pfx}manual_assigned_to_${idx}"
+              style="padding:5px 8px; border:1px solid var(--border); border-radius:5px; font-size:0.88em; width:100%;">
+        <option value="shared" selected>Shared</option>
+        ${opts}
+        <option value="excluded">Exclude</option>
+      </select>
+    </td>
+    <td>
+      <button type="button" class="btn btn-danger btn-sm"
+              onclick="this.closest('tr').remove()"
+              style="padding:4px 9px;">✕</button>
+    </td>`;
+  body.appendChild(row);
+}
+
+function toggleReceipt(ri) {
+  const body = document.getElementById(`receipt-body-${ri}`);
+  const icon = document.getElementById(`toggle-icon-${ri}`);
+  if (!body) return;
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  if (icon) icon.textContent = hidden ? '▲' : '▼';
+}
+</script>
 {% endblock %}

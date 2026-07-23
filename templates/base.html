@@ -1,93 +1,129 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}Bill Splitter{% endblock %}</title>
+<title>{% block title %}Splight{% endblock %}</title>
 <style>
-body {
-font-family: 'Inter', sans-serif;
-margin: 0;
-padding: 0;
-background-color: #f4f7f6;
-color: #333;
-}
-.navbar {
-background-color: #1a73e8;
-padding: 15px 30px;
-box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-.navbar a {
-color: white;
-text-decoration: none;
-margin-right: 20px;
-font-weight: 500;
-padding: 5px 10px;
-border-radius: 4px;
-transition: background-color 0.3s;
-}
-.navbar a:hover {
-background-color: #1558b0;
-}
-.container {
-max-width: 1200px;
-margin: 30px auto;
-padding: 20px;
-background: #ffffff;
-border-radius: 12px;
-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-}
-.flash {
-padding: 15px;
-margin-bottom: 20px;
-border-radius: 8px;
-font-weight: bold;
-}
-.flash.success {
-background-color: #d4edda;
-color: #155724;
-border: 1px solid #c3e6cb;
-}
-h1 {
-color: #2c3e50;
-border-bottom: 2px solid #e0e0e0;
-padding-bottom: 10px;
-margin-bottom: 20px;
-}
+  :root {
+    --primary:       #4f46e5;
+    --primary-dark:  #4338ca;
+    --accent:        #f59e0b;
+    --bg:            #f1f5f9;
+    --surface:       #ffffff;
+    --border:        #e2e8f0;
+    --text:          #1e293b;
+    --text-muted:    #64748b;
+    --success:       #10b981;
+    --danger:        #ef4444;
+    --radius:        10px;
+    --shadow:        0 4px 24px rgba(0,0,0,0.07);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.6; }
+
+  /* Navbar */
+  .navbar { background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%); padding: 0 28px; height: 56px; display: flex; align-items: center; gap: 4px; box-shadow: 0 2px 10px rgba(79,70,229,0.3); position: sticky; top: 0; z-index: 100; }
+  .navbar-brand { font-weight: 700; font-size: 1.05em; color: white; text-decoration: none; letter-spacing: -0.3px; margin-right: 14px; white-space: nowrap; }
+  .navbar a { color: rgba(255,255,255,0.82); text-decoration: none; padding: 6px 11px; border-radius: 6px; font-size: 0.87em; font-weight: 500; transition: background 0.15s, color 0.15s; white-space: nowrap; }
+  .navbar a:hover { background: rgba(255,255,255,0.15); color: white; }
+  .navbar-spacer { flex: 1; }
+  .navbar-user { display: flex; align-items: center; gap: 10px; color: rgba(255,255,255,0.75); font-size: 0.85em; white-space: nowrap; }
+  .navbar-user strong { color: white; }
+
+  /* Container */
+  .container { max-width: 1060px; margin: 30px auto; padding: 32px 36px; background: var(--surface); border-radius: 16px; box-shadow: var(--shadow); }
+
+  /* Flash messages */
+  .flash-list { margin-bottom: 20px; }
+  .flash { padding: 11px 16px; border-radius: var(--radius); font-size: 0.9em; margin-bottom: 8px; border-left: 4px solid var(--primary); background: #eef2ff; }
+  .flash.success { border-color: var(--success); background: #ecfdf5; }
+  .flash.error   { border-color: var(--danger);  background: #fef2f2; }
+
+  /* Typography */
+  h1 { font-size: 1.55em; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  h2 { font-size: 1.15em; font-weight: 600; color: var(--text); margin: 22px 0 10px; }
+  h3 { font-size: 0.97em; font-weight: 600; color: var(--text); margin: 14px 0 8px; }
+  .page-subtitle { color: var(--text-muted); font-size: 0.9em; margin-bottom: 22px; }
+
+  /* Buttons */
+  .btn { display: inline-block; padding: 9px 20px; border-radius: 8px; font-size: 0.9em; font-weight: 600; text-decoration: none; border: none; cursor: pointer; transition: opacity 0.15s, transform 0.1s; line-height: 1.4; }
+  .btn:hover  { opacity: 0.87; }
+  .btn:active { transform: scale(0.97); }
+  .btn[disabled], .btn:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-success { background: var(--success); color: white; }
+  .btn-danger  { background: var(--danger);  color: white; }
+  .btn-accent  { background: var(--accent);  color: white; }
+  .btn-ghost   { background: transparent; color: var(--primary); border: 1.5px solid var(--border); }
+  .btn-sm { padding: 5px 12px; font-size: 0.82em; border-radius: 6px; }
+  .btn-lg { padding: 13px 30px; font-size: 1em; }
+
+  /* Cards */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+  .card-muted { background: #f8fafc; }
+
+  /* Forms */
+  .form-group { margin-bottom: 16px; }
+  .form-label { display: block; font-weight: 600; font-size: 0.88em; margin-bottom: 5px; }
+  .form-control { width: 100%; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 0.9em; color: var(--text); background: white; transition: border-color 0.15s; }
+  .form-control:focus { outline: none; border-color: var(--primary); }
+  .form-hint { font-size: 0.8em; color: var(--text-muted); margin-top: 4px; }
+
+  /* Tables */
+  .table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+  .table th { padding: 10px 12px; text-align: left; background: #f8fafc; border-bottom: 2px solid var(--border); font-weight: 600; color: var(--text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.05em; }
+  .table td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .table tbody tr:last-child td { border-bottom: none; }
+  .table tbody tr:hover td { background: #fafbfc; }
+  .table tfoot td { background: #f8fafc; font-weight: 600; border-top: 2px solid var(--border); border-bottom: none; }
+  .table .text-right { text-align: right; }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 0.78em; font-weight: 600; }
+  .badge-primary { background: #eef2ff; color: var(--primary); }
+  .badge-success { background: #ecfdf5; color: #059669; }
+  .badge-danger  { background: #fef2f2; color: var(--danger); }
+  .badge-accent  { background: #fffbeb; color: #b45309; }
+
+  /* Divider */
+  .divider { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
 </style>
 </head>
 <body>
-<div class="navbar">
-<a href="{{ url_for('index') }}">Upload New Bill</a>
-<a href="{{ url_for('balances') }}">View Balances</a>
-<a href="{{ url_for('history') }}">History</a>
-{% if current_user.is_authenticated %}
-<a href="{{ url_for('group_page') }}">My Household</a>
-{% endif %}
- <span style="float: right;">
-        {% if current_user.is_authenticated %}
-            Logged in as <strong>{{ current_user.id }}</strong> |
-            <a href="{{ url_for('logout') }}" style="color: white; text-decoration: underline;">Logout</a>
-        {% else %}
-            <a href="{{ url_for('login') }}">Login</a> |
-            <a href="{{ url_for('register') }}">Register</a>
-        {% endif %}
-    </span>
-</div>
+
+<nav class="navbar">
+  <a class="navbar-brand" href="{{ url_for('index') }}">✨ Splight</a>
+  {% if current_user.is_authenticated %}
+  <a href="{{ url_for('index') }}">Upload</a>
+  <a href="{{ url_for('balances') }}">Balances</a>
+  <a href="{{ url_for('history') }}">History</a>
+  <a href="{{ url_for('group_page') }}">My Household</a>
+  {% endif %}
+  <div class="navbar-spacer"></div>
+  <div class="navbar-user">
+    {% if current_user.is_authenticated %}
+      <span>Hi, <strong>{{ current_user.id }}</strong></span>
+      <a href="{{ url_for('logout') }}">Logout</a>
+    {% else %}
+      <a href="{{ url_for('login') }}">Login</a>
+      <a href="{{ url_for('register') }}">Register</a>
+    {% endif %}
+  </div>
+</nav>
 
 <div class="container">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-        {% for category, message in messages %}
-        <div class="flash {{ category }}">
-            {{ message }}
-        </div>
-        {% endfor %}
-    {% endif %}
-    {% endwith %}
-    
-    {% block content %}{% endblock %}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div class="flash-list">
+    {% for category, message in messages %}
+    <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
 </div>
 
 </body>

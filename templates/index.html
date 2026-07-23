@@ -1,27 +1,101 @@
 {% extends "base.html" %}
-{% block title %}Upload Bill{% endblock %}
+{% block title %}Upload Bills{% endblock %}
 {% block content %}
-<h1>Upload a New Bill or Receipt</h1>
-<p>Please upload an image (JPG/PNG) or a PDF file of your receipt for automatic parsing.</p>
+<h1>Upload Receipts</h1>
+<p class="page-subtitle">Drop one or multiple receipts and we'll OCR them all at once.</p>
 
-<!-- Upload Form -->
-<form method="POST" action="{{ url_for('upload_bill') }}" enctype="multipart/form-data">
-    <div style="margin-bottom: 20px;">
-        <label for="bill_image" style="display: block; font-weight: bold; margin-bottom: 5px;">Select File:</label>
-        <input type="file" name="bill_image" id="bill_image" accept=".png, .jpg, .jpeg, .pdf" required
-               style="border: 1px solid #ccc; padding: 10px; border-radius: 4px; display: block; width: 100%; box-sizing: border-box;">
-    </div>
-    <button type="submit" style="padding: 10px 20px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">
-        Process Bill
+<form method="POST" action="{{ url_for('upload_bill') }}" enctype="multipart/form-data" id="uploadForm">
+  <div id="dropZone" style="
+    border: 2px dashed var(--border);
+    border-radius: 14px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    background: #f8fafc;
+    margin-bottom: 16px;
+  ">
+    <div style="font-size: 2.8em; margin-bottom: 10px;">📂</div>
+    <p style="font-size: 1.05em; font-weight: 600; color: var(--text); margin-bottom: 6px;">
+      Drop receipts here
+    </p>
+    <p style="color: var(--text-muted); font-size: 0.88em; margin-bottom: 14px;">
+      or <span style="color: var(--primary); font-weight: 600; cursor: pointer;" onclick="document.getElementById('bill_image').click()">browse files</span>
+    </p>
+    <p style="color: var(--text-muted); font-size: 0.8em;">JPG · PNG · PDF &nbsp;·&nbsp; Multiple files supported</p>
+    <input type="file" name="bill_image" id="bill_image" accept=".png,.jpg,.jpeg,.pdf" multiple style="display:none">
+  </div>
+
+  <div id="fileList" style="margin-bottom: 20px;"></div>
+
+  <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+    <button type="submit" class="btn btn-primary btn-lg" id="submitBtn" disabled>
+      Select files to continue
     </button>
+    <span style="color: var(--text-muted); font-size: 0.85em;">or</span>
+    <a href="{{ url_for('manual_payment') }}" class="btn btn-ghost">Add manual payment</a>
+  </div>
 </form>
 
-<!-- Manual Payment Button -->
-<div style="margin-top: 30px;">
-    <h2>Or add a manual payment</h2>
-    <a href="{{ url_for('manual_payment') }}" 
-       style="display: inline-block; padding: 12px 20px; background-color: #1a73e8; color: white; border-radius: 6px; text-decoration: none; font-weight: bold;">
-       Add Manual Payment
-    </a>
-</div>
+<style>
+  #dropZone.dragover { border-color: var(--primary); background: #eef2ff; }
+  .file-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 6px;
+    font-size: 0.88em;
+  }
+  .file-item-icon { font-size: 1.2em; }
+  .file-item-name { flex: 1; font-weight: 500; color: var(--text); }
+  .file-item-size { color: var(--text-muted); }
+</style>
+
+<script>
+const zone   = document.getElementById('dropZone');
+const input  = document.getElementById('bill_image');
+const list   = document.getElementById('fileList');
+const submit = document.getElementById('submitBtn');
+
+function renderFiles(files) {
+  list.innerHTML = '';
+  if (!files || files.length === 0) {
+    submit.disabled = true;
+    submit.textContent = 'Select files to continue';
+    return;
+  }
+  Array.from(files).forEach(f => {
+    const ext  = f.name.split('.').pop().toUpperCase();
+    const size = f.size < 1024*1024
+      ? (f.size/1024).toFixed(0) + ' KB'
+      : (f.size/1024/1024).toFixed(1) + ' MB';
+    const icon = ext === 'PDF' ? '📄' : '🖼️';
+    const div = document.createElement('div');
+    div.className = 'file-item';
+    div.innerHTML = `<span class="file-item-icon">${icon}</span>
+                     <span class="file-item-name">${f.name}</span>
+                     <span class="badge badge-primary">${ext}</span>
+                     <span class="file-item-size">${size}</span>`;
+    list.appendChild(div);
+  });
+  const n = files.length;
+  submit.disabled = false;
+  submit.textContent = n === 1 ? 'Process 1 Receipt' : `Process ${n} Receipts`;
+}
+
+zone.addEventListener('click', () => input.click());
+zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('dragover'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+zone.addEventListener('drop', e => {
+  e.preventDefault();
+  zone.classList.remove('dragover');
+  input.files = e.dataTransfer.files;
+  renderFiles(input.files);
+});
+input.addEventListener('change', () => renderFiles(input.files));
+</script>
 {% endblock %}
