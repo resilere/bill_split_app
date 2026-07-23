@@ -129,6 +129,10 @@
                 <td>
                   <input type="hidden"  name="r{{ ri }}_item_description_{{ ji }}" value="{{ item.description }}">
                   <span style="font-size:0.9em;">{{ item.description }}</span>
+                  {% if item.from_memory and item.suggested != 'shared' %}
+                  <span class="badge badge-primary" title="Pre-filled from a previous receipt"
+                        style="font-size:0.7em; margin-left:6px;">↩ remembered</span>
+                  {% endif %}
                 </td>
                 <td class="text-right">
                   <input type="number" step="0.01"
@@ -140,11 +144,13 @@
                   <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.85em;">
                     {% for u in all_users %}
                     <label style="display:flex; align-items:center; gap:3px; cursor:pointer;">
-                      <input type="radio" name="r{{ ri }}_assigned_to_{{ ji }}" value="{{ u.id }}"> {{ u.name }}
+                      <input type="radio" name="r{{ ri }}_assigned_to_{{ ji }}" value="{{ u.id }}"
+                             {% if item.suggested == u.id %}checked{% endif %}> {{ u.name }}
                     </label>
                     {% endfor %}
                     <label style="display:flex; align-items:center; gap:3px; cursor:pointer;">
-                      <input type="radio" name="r{{ ri }}_assigned_to_{{ ji }}" value="shared" checked> Shared
+                      <input type="radio" name="r{{ ri }}_assigned_to_{{ ji }}" value="shared"
+                             {% if item.suggested == 'shared' or not item.suggested %}checked{% endif %}> Shared
                     </label>
                     <label style="display:flex; align-items:center; gap:3px; cursor:pointer; color:var(--text-muted);">
                       <input type="radio" name="r{{ ri }}_assigned_to_{{ ji }}" value="excluded"> Exclude

@@ -665,6 +665,46 @@ def _process_one_file(file):
     }
 
 
+def get_assignment_memory(group_id):
+    """Return {normalized_description: assigned_to} learned from this group's
+    past item assignments. For each distinct description, pick the assignment
+    used most often (ties broken by the most recent). Only current members and
+    the 'shared' marker are eligible, so suggestions for removed users don't
+    leak in."""
+    cursor = get_cursor()
+    cursor.execute('SELECT id FROM users WHERE group_id = %s', (group_id,))
+    valid = {row['id'] for row in cursor.fetchall()}
+    valid.add('shared')
+
+    cursor.execute(
+        'SELECT lower(btrim(i.description)) AS norm, i.assigned_to, '
+        'COUNT(*) AS cnt, MAX(i.id) AS recent '
+        'FROM items i JOIN receipts r ON r.id = i.receipt_id '
+        'WHERE r.group_id = %s '
+        'GROUP BY norm, i.assigned_to',
+        (group_id,)
+    )
+    best = {}  # norm -> ((cnt, recent), assigned_to)
+    for row in cursor.fetchall():
+        if row['assigned_to'] not in valid or not row['norm']:
+            continue
+        rank = (row['cnt'], row['recent'])
+        if row['norm'] not in best or rank > best[row['norm']][0]:
+            best[row['norm']] = (rank, row['assigned_to'])
+    return {norm: val[1] for norm, val in best.items()}
+
+
+def _apply_assignment_memory(receipts, group_id):
+    """Pre-fill each parsed item's suggested assignment from past history."""
+    memory = get_assignment_memory(group_id)
+    for receipt in receipts:
+        for item in receipt['parsed_items']:
+            norm = (item.get('description') or '').strip().lower()
+            remembered = memory.get(norm)
+            item['suggested'] = remembered if remembered else 'shared'
+            item['from_memory'] = remembered is not None
+
+
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def upload_bill():
@@ -678,6 +718,7 @@ def upload_bill():
     if not receipts:
         return redirect(url_for('index'))
 
+    _apply_assignment_memory(receipts, current_user.group_id)
     return render_template('bill_details.html', receipts=receipts)
 
 @app.route('/uploads/<filename>')
