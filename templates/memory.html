@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Memory – Splight{% endblock %}
+{% block content %}
+
+<h1>Assignment Memory</h1>
+<p class="page-subtitle">
+  What each item gets pre-assigned to when it shows up on a new receipt.
+  Learned from your history — change any row to pin your own choice.
+</p>
+
+{% if entries %}
+<div style="overflow-x:auto;">
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th class="text-right" style="width:80px;">Seen</th>
+        <th style="width:180px;">Recommended</th>
+        <th style="width:150px;">Source</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td>{{ e.display }}</td>
+        <td class="text-right" style="color:var(--text-muted);">{{ e.count }}×</td>
+        <td>
+          <form action="{{ url_for('memory_set') }}" method="POST" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="match_key" value="{{ e.match_key }}">
+            <input type="hidden" name="display" value="{{ e.display }}">
+            <select name="assigned_to" onchange="this.form.submit()"
+                    style="width:100%; padding:4px 6px; border:1px solid var(--border); border-radius:5px; font-size:0.85em;">
+              <option value="shared" {% if e.effective == 'shared' %}selected{% endif %}>Shared</option>
+              {% for m in members %}
+              <option value="{{ m.id }}" {% if e.effective == m.id %}selected{% endif %}>{{ m.name }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </td>
+        <td>
+          {% if e.override %}
+            <span class="badge badge-primary">📌 Pinned</span>
+            <form action="{{ url_for('memory_reset') }}" method="POST" style="display:inline; margin-left:6px;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="match_key" value="{{ e.match_key }}">
+              <button type="submit" class="btn btn-ghost btn-sm" title="Revert to the learned recommendation">Reset</button>
+            </form>
+          {% else %}
+            <span style="color:var(--text-muted); font-size:0.85em;">Learned</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p style="margin-top:14px; font-size:0.82em; color:var(--text-muted);">
+  Pinned items always win over what history suggests. Editing here never changes past receipts —
+  it only affects what gets pre-filled on future uploads.
+</p>
+{% else %}
+<div style="text-align:center; padding:48px 24px; border:2px dashed var(--border); border-radius:12px; color:var(--text-muted);">
+  <div style="font-size:2.5em; margin-bottom:12px;">🧠</div>
+  <p style="font-size:1.05em; margin-bottom:8px;">Nothing learned yet.</p>
+  <p style="font-size:0.9em;">Assign items on a few receipts and they'll show up here as recommendations.</p>
+</div>
+{% endif %}
+
+{% endblock %}

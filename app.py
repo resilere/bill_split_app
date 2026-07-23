@@ -12,6 +12,7 @@ import pytesseract
 from PIL import Image
 import io
 import re
+import difflib
 import pdfplumber
 import psycopg2
 import psycopg2.extras
@@ -321,6 +322,19 @@ def init_db():
             FOREIGN KEY (receipt_id) REFERENCES receipts(id)
         );
     """
+    # User-pinned assignment recommendations. Overrides the value learned from
+    # history without ever changing past receipts. Keyed by a normalized
+    # match_key so it survives OCR spacing/punctuation differences.
+    pg_overrides = """
+        CREATE TABLE IF NOT EXISTS assignment_overrides (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES groups(id),
+            match_key TEXT NOT NULL,
+            display TEXT NOT NULL,
+            assigned_to TEXT NOT NULL,
+            UNIQUE (group_id, match_key)
+        );
+    """
 
 
     with app.app_context():
@@ -339,6 +353,7 @@ def init_db():
             cur.execute(pg_receipts)
             cur.execute(pg_receipts_alter_group)
             cur.execute(pg_items)
+            cur.execute(pg_overrides)
             # default users (use ON CONFLICT DO NOTHING)
             cur.execute("INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", ('eser', 'Eser'))
             cur.execute("INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", ('david', 'David'))
@@ -665,42 +680,109 @@ def _process_one_file(file):
     }
 
 
-def get_assignment_memory(group_id):
-    """Return {normalized_description: assigned_to} learned from this group's
-    past item assignments. For each distinct description, pick the assignment
-    used most often (ties broken by the most recent). Only current members and
-    the 'shared' marker are eligible, so suggestions for removed users don't
-    leak in."""
+def _match_key(description):
+    """Normalize an item description for matching: lowercase, strip everything
+    that isn't a letter or digit. This absorbs OCR spacing/punctuation noise
+    (e.g. 'Herz.Soft-EisSch.' and 'HERZ SOFT EISSCH' collapse to the same key)."""
+    return re.sub(r'[^a-z0-9]+', '', (description or '').lower())
+
+
+FUZZY_CUTOFF = 0.82
+
+
+def get_memory_entries(group_id):
+    """Return per-item recommendation entries for this household, combining what
+    was learned from history with any user-pinned overrides. Each entry:
+    {match_key, display, count, learned, override, effective}."""
     cursor = get_cursor()
-    cursor.execute('SELECT id FROM users WHERE group_id = %s', (group_id,))
-    valid = {row['id'] for row in cursor.fetchall()}
+    cursor.execute('SELECT id, name FROM users WHERE group_id = %s', (group_id,))
+    members = cursor.fetchall()
+    valid = {m['id'] for m in members}
     valid.add('shared')
 
+    # Learn from history: aggregate assignments and pick a display label per key.
     cursor.execute(
-        'SELECT lower(btrim(i.description)) AS norm, i.assigned_to, '
-        'COUNT(*) AS cnt, MAX(i.id) AS recent '
-        'FROM items i JOIN receipts r ON r.id = i.receipt_id '
-        'WHERE r.group_id = %s '
-        'GROUP BY norm, i.assigned_to',
+        'SELECT i.description, i.assigned_to, i.id FROM items i '
+        'JOIN receipts r ON r.id = i.receipt_id WHERE r.group_id = %s',
         (group_id,)
     )
-    best = {}  # norm -> ((cnt, recent), assigned_to)
+    stats = {}  # key -> {'count', 'assign': {assigned_to: (cnt, recent)}, 'disp': {text: (cnt, recent)}}
     for row in cursor.fetchall():
-        if row['assigned_to'] not in valid or not row['norm']:
+        key = _match_key(row['description'])
+        if not key:
             continue
-        rank = (row['cnt'], row['recent'])
-        if row['norm'] not in best or rank > best[row['norm']][0]:
-            best[row['norm']] = (rank, row['assigned_to'])
-    return {norm: val[1] for norm, val in best.items()}
+        s = stats.setdefault(key, {'count': 0, 'assign': {}, 'disp': {}})
+        s['count'] += 1
+        a = row['assigned_to']
+        cnt, rec = s['assign'].get(a, (0, 0))
+        s['assign'][a] = (cnt + 1, max(rec, row['id']))
+        text = (row['description'] or '').strip()
+        dcnt, drec = s['disp'].get(text, (0, 0))
+        s['disp'][text] = (dcnt + 1, max(drec, row['id']))
+
+    # Load overrides
+    cursor.execute(
+        'SELECT match_key, display, assigned_to FROM assignment_overrides WHERE group_id = %s',
+        (group_id,)
+    )
+    overrides = {r['match_key']: (r['display'], r['assigned_to']) for r in cursor.fetchall()}
+
+    keys = set(stats) | set(overrides)
+    entries = []
+    for key in keys:
+        s = stats.get(key)
+        # learned = most-used valid assignment (tie -> most recent)
+        learned = None
+        if s:
+            best = None
+            for a, (cnt, rec) in s['assign'].items():
+                if a not in valid:
+                    continue
+                if best is None or (cnt, rec) > best[0]:
+                    best = ((cnt, rec), a)
+            learned = best[1] if best else None
+            display = max(s['disp'].items(), key=lambda kv: kv[1])[0]
+            count = s['count']
+        else:
+            display = overrides[key][0]
+            count = 0
+
+        override = None
+        if key in overrides and overrides[key][1] in valid:
+            override = overrides[key][1]
+
+        effective = override if override is not None else learned
+        if effective is None:
+            continue  # nothing valid to recommend (e.g. only assigned to a removed member)
+        entries.append({
+            'match_key': key, 'display': display, 'count': count,
+            'learned': learned, 'override': override, 'effective': effective,
+        })
+
+    entries.sort(key=lambda e: (-e['count'], e['display'].lower()))
+    return entries
+
+
+def get_assignment_memory(group_id):
+    """Return {match_key: assigned_to} — the effective recommendation per item."""
+    return {e['match_key']: e['effective'] for e in get_memory_entries(group_id)}
 
 
 def _apply_assignment_memory(receipts, group_id):
-    """Pre-fill each parsed item's suggested assignment from past history."""
+    """Pre-fill each parsed item's suggested assignment from memory, using an
+    exact match_key first and falling back to a fuzzy match for OCR variance."""
     memory = get_assignment_memory(group_id)
+    keys = list(memory.keys())
     for receipt in receipts:
         for item in receipt['parsed_items']:
-            norm = (item.get('description') or '').strip().lower()
-            remembered = memory.get(norm)
+            key = _match_key(item.get('description'))
+            remembered = None
+            if key and key in memory:
+                remembered = memory[key]
+            elif key and keys:
+                close = difflib.get_close_matches(key, keys, n=1, cutoff=FUZZY_CUTOFF)
+                if close:
+                    remembered = memory[close[0]]
             item['suggested'] = remembered if remembered else 'shared'
             item['from_memory'] = remembered is not None
 
@@ -853,6 +935,76 @@ def settle():
         db.rollback()
         flash(f'Error recording settlement: {e}')
     return redirect(url_for('balances'))
+
+
+@app.route('/memory')
+@login_required
+def memory_page():
+    """View and edit the assignment recommendations learned from history."""
+    entries = get_memory_entries(current_user.group_id)
+    cursor = get_cursor()
+    cursor.execute('SELECT id, name FROM users WHERE group_id = %s ORDER BY name', (current_user.group_id,))
+    members = cursor.fetchall()
+    return render_template('memory.html', entries=entries, members=members)
+
+
+@app.route('/memory/set', methods=['POST'])
+@login_required
+def memory_set():
+    """Pin an item's recommendation (create/replace an override)."""
+    db = None
+    try:
+        match_key = (request.form.get('match_key') or '').strip()
+        display = (request.form.get('display') or match_key).strip()
+        assigned_to = request.form.get('assigned_to')
+        if not match_key:
+            flash('Invalid item.')
+            return redirect(url_for('memory_page'))
+
+        db = get_db()
+        cursor = get_cursor()
+        cursor.execute('SELECT id FROM users WHERE group_id = %s', (current_user.group_id,))
+        valid = {row['id'] for row in cursor.fetchall()}
+        if assigned_to != 'shared' and assigned_to not in valid:
+            flash('Invalid assignment.')
+            return redirect(url_for('memory_page'))
+
+        cursor.execute(
+            'INSERT INTO assignment_overrides (group_id, match_key, display, assigned_to) '
+            'VALUES (%s, %s, %s, %s) '
+            'ON CONFLICT (group_id, match_key) DO UPDATE SET assigned_to = EXCLUDED.assigned_to, display = EXCLUDED.display',
+            (current_user.group_id, match_key, display, assigned_to)
+        )
+        db.commit()
+        flash('Recommendation pinned.')
+    except Exception as e:
+        if db:
+            db.rollback()
+        flash(f'Error saving recommendation: {e}')
+    return redirect(url_for('memory_page'))
+
+
+@app.route('/memory/reset', methods=['POST'])
+@login_required
+def memory_reset():
+    """Remove a pinned override, reverting to what history teaches."""
+    db = None
+    try:
+        match_key = (request.form.get('match_key') or '').strip()
+        db = get_db()
+        cursor = get_cursor()
+        cursor.execute(
+            'DELETE FROM assignment_overrides WHERE group_id = %s AND match_key = %s',
+            (current_user.group_id, match_key)
+        )
+        db.commit()
+        flash('Reverted to the learned recommendation.')
+    except Exception as e:
+        if db:
+            db.rollback()
+        flash(f'Error resetting recommendation: {e}')
+    return redirect(url_for('memory_page'))
+
 
 def get_bill_history(sort_by='upload_date', group_id=None):
     cursor = get_cursor()
