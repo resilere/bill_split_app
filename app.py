@@ -792,16 +792,24 @@ def get_bill_history(sort_by='upload_date', group_id=None):
     cursor.execute(query, (group_id,))
     receipts = cursor.fetchall()
 
+    # Fetch all items for these receipts in a single query (avoids N+1),
+    # then group them by receipt_id in memory.
+    receipt_ids = [r['id'] for r in receipts]
+    items_by_receipt = {rid: [] for rid in receipt_ids}
+    if receipt_ids:
+        cursor.execute(
+            'SELECT receipt_id, description, price, assigned_to FROM items WHERE receipt_id = ANY(%s)',
+            (receipt_ids,)
+        )
+        for row in cursor.fetchall():
+            items_by_receipt[row['receipt_id']].append(
+                {'description': row['description'], 'assigned_to': row['assigned_to'], 'price': float(row['price'])}
+            )
+
     bills_history = []
 
     for receipt in receipts:
-        # Get items for this receipt
-        cursor.execute(
-            'SELECT description, price, assigned_to FROM items WHERE receipt_id = %s',
-            (receipt['id'],)
-        )
-        items = [{'description': row['description'], 'assigned_to': row['assigned_to'], 'price': float(row['price'])}
-                 for row in cursor.fetchall()]
+        items = items_by_receipt[receipt['id']]
         totals_by_user = {uid: round(sum(item['price'] for item in items if item['assigned_to'] == uid), 2)
                            for uid in user_ids}
         shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')

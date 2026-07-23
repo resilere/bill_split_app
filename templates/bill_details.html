@@ -80,7 +80,7 @@
             <label class="form-label">Who paid?</label>
             <select name="r{{ ri }}_payer_id" class="form-control" style="max-width:280px;">
               {% for u in all_users %}
-              <option value="{{ u.id }}">{{ u.name }}</option>
+              <option value="{{ u.id }}" {% if u.id == current_user.id %}selected{% endif %}>{{ u.name }}</option>
               {% endfor %}
             </select>
           </div>
