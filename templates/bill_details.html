@@ -27,6 +27,37 @@
   @media (max-width: 720px) {
     .receipt-img.zoomed { width: 100%; }
   }
+
+  /* One-click payer selection (radio buttons styled as pills) */
+  .payer-select { display: flex; flex-wrap: wrap; gap: 8px; }
+  .payer-pill { cursor: pointer; }
+  .payer-pill input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .payer-pill span {
+    display: inline-block;
+    padding: 8px 18px;
+    border: 1.5px solid var(--border);
+    border-radius: 99px;
+    font-size: 0.9em;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--surface);
+    transition: all 0.15s;
+  }
+  .payer-pill span:hover { border-color: var(--primary); }
+  .payer-pill input:checked + span {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+  .payer-pill input:focus-visible + span {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
 </style>
 
 <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:4px;">
@@ -104,11 +135,15 @@
           <!-- Payer -->
           <div class="form-group">
             <label class="form-label">Who paid?</label>
-            <select name="r{{ ri }}_payer_id" class="form-control" style="max-width:280px;">
+            <div class="payer-select">
               {% for u in all_users %}
-              <option value="{{ u.id }}" {% if u.id == current_user.id %}selected{% endif %}>{{ u.name }}</option>
+              <label class="payer-pill">
+                <input type="radio" name="r{{ ri }}_payer_id" value="{{ u.id }}"
+                       {% if u.id == current_user.id %}checked{% endif %}>
+                <span>{{ u.name }}</span>
+              </label>
               {% endfor %}
-            </select>
+            </div>
           </div>
 
           <!-- Parsed items table -->
