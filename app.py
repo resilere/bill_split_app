@@ -773,6 +773,46 @@ def balances():
     balances_data = calculate_balances_detailed(current_user.group_id)
     return render_template('balances.html', balance=balances_data)
 
+
+@app.route('/settle', methods=['POST'])
+@login_required
+def settle():
+    """Record a repayment for a suggested settlement. Booked as a receipt paid
+    by the debtor with the amount assigned to the creditor, which exactly
+    cancels the outstanding balance between them."""
+    db = get_db()
+    cursor = get_cursor()
+    try:
+        from_id = request.form.get('from_id')
+        to_id = request.form.get('to_id')
+        amount = float(request.form.get('amount', 0))
+
+        cursor.execute('SELECT id FROM users WHERE group_id = %s', (current_user.group_id,))
+        valid_user_ids = {row['id'] for row in cursor.fetchall()}
+        if from_id not in valid_user_ids or to_id not in valid_user_ids or from_id == to_id:
+            flash('Invalid settlement.')
+            return redirect(url_for('balances'))
+        if amount <= 0:
+            flash('Invalid settlement amount.')
+            return redirect(url_for('balances'))
+
+        cursor.execute(
+            'INSERT INTO receipts (payer_id, filename, bill_date, total, group_id) '
+            'VALUES (%s, %s, CURRENT_DATE, %s, %s) RETURNING id',
+            (from_id, 'Settlement', amount, current_user.group_id)
+        )
+        receipt_id = cursor.fetchone()['id']
+        cursor.execute(
+            'INSERT INTO items (receipt_id, description, price, assigned_to) VALUES (%s, %s, %s, %s)',
+            (receipt_id, 'Settlement payment', amount, to_id)
+        )
+        db.commit()
+        flash('Settlement recorded.')
+    except Exception as e:
+        db.rollback()
+        flash(f'Error recording settlement: {e}')
+    return redirect(url_for('balances'))
+
 def get_bill_history(sort_by='upload_date', group_id=None):
     cursor = get_cursor()
 

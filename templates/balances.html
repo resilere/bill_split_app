@@ -21,12 +21,20 @@
     flex-wrap: wrap;
   ">
     <span style="font-size: 1.4em;">💸</span>
-    <div style="flex: 1;">
+    <div style="flex: 1; min-width: 160px;">
       <span style="font-weight: 600;">{{ s.from_name }}</span>
       <span style="color: var(--text-muted);"> owes </span>
       <span style="font-weight: 600;">{{ s.to_name }}</span>
     </div>
     <span style="font-size: 1.5em; font-weight: 700; color: var(--primary);">€{{ "%.2f"|format(s.amount) }}</span>
+    <form method="POST" action="{{ url_for('settle') }}" style="margin: 0;"
+          onsubmit="return confirm('Mark as settled? This records a €{{ '%.2f'|format(s.amount) }} payment from {{ s.from_name }} to {{ s.to_name }}.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="from_id" value="{{ s.from }}">
+      <input type="hidden" name="to_id" value="{{ s.to }}">
+      <input type="hidden" name="amount" value="{{ '%.2f'|format(s.amount) }}">
+      <button type="submit" class="btn btn-success btn-sm">Settle up</button>
+    </form>
   </div>
   {% endfor %}
 </div>
