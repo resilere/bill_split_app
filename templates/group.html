@@ -5,6 +5,20 @@
 <h1>{{ group.name }}</h1>
 <p class="page-subtitle">Manage your household members and share your invite code.</p>
 
+{% if new_link %}
+<!-- Freshly generated setup link -->
+<div class="card" style="max-width: 620px; margin-bottom: 24px; border-color: var(--primary); background: #eef2ff;">
+  <p style="font-weight:600; margin-bottom:8px;">Setup link for {{ new_link_name }}</p>
+  <p style="color: var(--text-muted); font-size: 0.86em; margin-bottom: 10px;">
+    Send this one-time link to {{ new_link_name }}. They'll set their own email and password,
+    and their existing history stays linked. The link expires in 7 days.
+  </p>
+  <input type="text" readonly value="{{ new_link }}" onclick="this.select()"
+         style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px;
+                font-size:0.85em; font-family:monospace; background:var(--surface);">
+</div>
+{% endif %}
+
 <!-- Invite code card -->
 <div style="max-width: 460px; margin-bottom: 32px;">
   <div class="card card-muted">
@@ -51,11 +65,23 @@
       flex-shrink: 0;
     ">{{ member.name[0].upper() }}</div>
 
-    <span style="flex: 1; font-weight: 500;">{{ member.name }}</span>
+    <span style="flex: 1; font-weight: 500;">
+      {{ member.name }}
+      {% if member.needs_setup %}
+      <span class="badge" style="background:#fffbeb; color:#b45309; font-size:0.72em; margin-left:6px;">no login yet</span>
+      {% endif %}
+    </span>
 
     {% if member.id == current_user.id %}
       <span class="badge badge-success">You</span>
     {% else %}
+      {% if member.needs_setup %}
+      <form method="POST" action="{{ url_for('member_setup_link') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="user_id" value="{{ member.id }}">
+        <button type="submit" class="btn btn-ghost btn-sm">Set up login</button>
+      </form>
+      {% endif %}
       <form method="POST" action="{{ url_for('remove_member') }}"
             onsubmit="return confirm('Remove {{ member.name }} from this household? Their items will be reassigned to shared.');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -335,6 +335,16 @@ def init_db():
             UNIQUE (group_id, match_key)
         );
     """
+    # One-time links that let an existing household member set up a login
+    # (email + password) for a name-only placeholder user, attaching auth to
+    # that existing row so their history is preserved.
+    pg_setup_tokens = """
+        CREATE TABLE IF NOT EXISTS account_setup_tokens (
+            token TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """
 
 
     with app.app_context():
@@ -354,6 +364,7 @@ def init_db():
             cur.execute(pg_receipts_alter_group)
             cur.execute(pg_items)
             cur.execute(pg_overrides)
+            cur.execute(pg_setup_tokens)
             # default users (use ON CONFLICT DO NOTHING)
             cur.execute("INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", ('eser', 'Eser'))
             cur.execute("INSERT INTO users (id, name) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING", ('david', 'David'))
@@ -1286,15 +1297,120 @@ def remove_receipt():
 
     return redirect(url_for('history'))
 
-@app.route('/group')
-@login_required
-def group_page():
+def _render_group(new_link=None, new_link_name=None):
+    """Render the household page. Members without an email/auth are flagged as
+    needing login setup. new_link (if given) shows a freshly generated setup URL."""
     cursor = get_cursor()
     cursor.execute('SELECT id, name, invite_code FROM groups WHERE id = %s', (current_user.group_id,))
     grp = cursor.fetchone()
-    cursor.execute('SELECT id, name FROM users WHERE group_id = %s ORDER BY name', (current_user.group_id,))
-    members = cursor.fetchall()
-    return render_template('group.html', group=grp, members=members)
+    cursor.execute(
+        'SELECT id, name, email, auth_uid FROM users WHERE group_id = %s ORDER BY name',
+        (current_user.group_id,)
+    )
+    members = [{
+        'id': row['id'],
+        'name': row['name'],
+        'needs_setup': row['email'] is None and row['auth_uid'] is None,
+    } for row in cursor.fetchall()]
+    return render_template('group.html', group=grp, members=members,
+                           new_link=new_link, new_link_name=new_link_name)
+
+
+@app.route('/group')
+@login_required
+def group_page():
+    return _render_group()
+
+
+SETUP_TOKEN_MAX_AGE_DAYS = 7
+
+
+@app.route('/group/setup_link', methods=['POST'])
+@login_required
+def member_setup_link():
+    """Generate a one-time setup link for a name-only member (no login yet)."""
+    user_id = request.form.get('user_id', '').strip()
+    db = get_db()
+    cursor = get_cursor()
+    cursor.execute(
+        'SELECT id, name, email, auth_uid FROM users WHERE id = %s AND group_id = %s',
+        (user_id, current_user.group_id)
+    )
+    member = cursor.fetchone()
+    if not member:
+        flash('Member not found in your household.')
+        return redirect(url_for('group_page'))
+    if member['email'] or member['auth_uid']:
+        flash('That member already has a login set up.')
+        return redirect(url_for('group_page'))
+
+    token = secrets.token_urlsafe(32)
+    cursor.execute('DELETE FROM account_setup_tokens WHERE user_id = %s', (user_id,))
+    cursor.execute('INSERT INTO account_setup_tokens (token, user_id) VALUES (%s, %s)', (token, user_id))
+    db.commit()
+    link = url_for('setup_account', token=token, _external=True)
+    return _render_group(new_link=link, new_link_name=member['name'])
+
+
+@app.route('/setup/<token>', methods=['GET', 'POST'])
+def setup_account(token):
+    """Public page (gated by the secret token) where an invited member sets
+    their email + password, which attaches to their existing user row."""
+    db = get_db()
+    cursor = get_cursor()
+    cursor.execute(
+        "SELECT t.user_id, u.name, u.email, u.auth_uid FROM account_setup_tokens t "
+        "JOIN users u ON u.id = t.user_id "
+        "WHERE t.token = %s AND t.created_at > NOW() - (%s * INTERVAL '1 day')",
+        (token, SETUP_TOKEN_MAX_AGE_DAYS)
+    )
+    row = cursor.fetchone()
+    if not row:
+        flash('This setup link is invalid or has expired.')
+        return redirect(url_for('login'))
+    if row['email'] or row['auth_uid']:
+        flash('This account has already been set up. Please log in.')
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        confirm = request.form.get('confirm_password', '')
+
+        if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+            flash('Please enter a valid email address.')
+            return render_template('setup_account.html', name=row['name'], token=token)
+        if len(password) < 6:
+            flash('Password must be at least 6 characters.')
+            return render_template('setup_account.html', name=row['name'], token=token)
+        if password != confirm:
+            flash('Passwords do not match.')
+            return render_template('setup_account.html', name=row['name'], token=token)
+
+        cursor.execute('SELECT id FROM users WHERE email = %s', (email,))
+        if cursor.fetchone():
+            flash('An account with that email already exists.')
+            return render_template('setup_account.html', name=row['name'], token=token)
+
+        status, data = supabase_auth('POST', f"/signup?redirect_to={url_for('login', _external=True)}",
+                                      json={'email': email, 'password': password})
+        if status >= 400:
+            flash(data.get('msg') or data.get('error_description') or 'Could not create account.')
+            return render_template('setup_account.html', name=row['name'], token=token)
+        user = data.get('user', data)
+        if user.get('identities') == []:
+            flash('An account with that email already exists. Try logging in or resetting your password.')
+            return render_template('setup_account.html', name=row['name'], token=token)
+
+        # Attach the new login to the EXISTING user row (keeps id, name, history).
+        cursor.execute('UPDATE users SET email = %s, auth_uid = %s WHERE id = %s',
+                       (email, user.get('id'), row['user_id']))
+        cursor.execute('DELETE FROM account_setup_tokens WHERE token = %s', (token,))
+        db.commit()
+        flash(f'Account set up! Confirm your email, then log in with username "{row["user_id"]}".', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('setup_account.html', name=row['name'], token=token)
 
 
 @app.route('/group/remove_member', methods=['POST'])

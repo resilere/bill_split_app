@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Set Up Your Login – Splight{% endblock %}
+{% block content %}
+<div style="max-width: 420px; margin: 40px auto;">
+  <h1 style="margin-bottom:6px;">Set up your login</h1>
+  <p class="page-subtitle">
+    You're setting up an account for <strong>{{ name }}</strong>. Choose an email and
+    password — your existing history in the household stays linked to you.
+  </p>
+
+  <form method="POST" action="{{ url_for('setup_account', token=token) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="form-group">
+      <label class="form-label" for="email">Email</label>
+      <input type="email" name="email" id="email" class="form-control" required>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="password">Password</label>
+      <input type="password" name="password" id="password" class="form-control" required>
+      <div class="form-hint">At least 6 characters.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="confirm_password">Confirm password</label>
+      <input type="password" name="confirm_password" id="confirm_password" class="form-control" required>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-lg" style="width:100%;">Create my login</button>
+  </form>
+
+  <p style="margin-top:16px; font-size:0.85em; color:var(--text-muted);">
+    After this, confirm your email via the link we send, then log in. We'll show you
+    the exact username to use.
+  </p>
+</div>
+{% endblock %}
