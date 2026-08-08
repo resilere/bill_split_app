@@ -274,8 +274,6 @@ def reset_password():
 # If Tesseract is not in your PATH, you might need to specify its path
 # pytesseract.pytesseract.tesseract_cmd = r'/path/to/tesseract.exe'
 
-#DATABASE = 'billsplitter.db'
-
 def init_db():
     """Initializes the DB with tables. Supports Postgres (via DATABASE_URL) or local SQLite fallback."""
     # Postgres-compatible statements
@@ -677,8 +675,8 @@ def _process_one_file(file):
             flash(f'Unsupported file type: {ext}')
             return None
     except Exception as e:
-        flash(f"Error processing {file.filename}: {e}")
         logging.exception(f"Error processing {file.filename}")
+        flash(f"Couldn't process {file.filename}. Make sure it's a valid image or PDF.")
         return None
 
     parsed_items = parse_bill_text(extracted_text)
@@ -889,15 +887,15 @@ def save_details():
             cursor.execute('UPDATE receipts SET total = %s WHERE id = %s', (total, receipt_id))
 
         db.commit()
-        msg = f'{receipt_count} bills saved!' if receipt_count > 1 else 'Bill saved!'
-        flash(msg)
-        return redirect(url_for('balances'))
+        msg = f'{receipt_count} bills saved! Check the amounts below.' if receipt_count > 1 else 'Bill saved! Check the amounts below.'
+        flash(msg, 'success')
+        return redirect(url_for('history'))
 
     except Exception as e:
         if db:
             db.rollback()
-        logging.error(f"Error in save_details: {e}")
-        flash(f'An error occurred: {e}')
+        logging.exception("Error in save_details")
+        flash('Something went wrong while saving. Please try again.')
         return redirect(url_for('index'))
 
 @app.route('/balances')
@@ -944,7 +942,8 @@ def settle():
         flash('Settlement recorded.')
     except Exception as e:
         db.rollback()
-        flash(f'Error recording settlement: {e}')
+        logging.exception("Error recording settlement")
+        flash('Could not record the settlement. Please try again.')
     return redirect(url_for('balances'))
 
 
@@ -991,7 +990,8 @@ def memory_set():
     except Exception as e:
         if db:
             db.rollback()
-        flash(f'Error saving recommendation: {e}')
+        logging.exception("Error saving recommendation")
+        flash('Could not save the recommendation. Please try again.')
     return redirect(url_for('memory_page'))
 
 
@@ -1013,7 +1013,8 @@ def memory_reset():
     except Exception as e:
         if db:
             db.rollback()
-        flash(f'Error resetting recommendation: {e}')
+        logging.exception("Error resetting recommendation")
+        flash('Could not reset the recommendation. Please try again.')
     return redirect(url_for('memory_page'))
 
 
@@ -1107,7 +1108,8 @@ def update_receipt_date():
     except Exception as e:
         if db:
             db.rollback()
-        flash(f'Error updating date: {e}')
+        logging.exception("Error updating receipt date")
+        flash('Could not update the date. Please try again.')
 
     return redirect(url_for('history'))
 
@@ -1144,7 +1146,8 @@ def add_missing_item():
         db.commit()
         flash('Item added successfully!')
     except Exception as e:
-        flash(f'Error adding item: {e}')
+        logging.exception("Error adding item")
+        flash('Could not add the item. Please try again.')
 
     return redirect(url_for('history'))
 
@@ -1190,7 +1193,8 @@ def remove_item():
     except Exception as e:
         if db:
             db.rollback()
-        flash(f'Error removing item: {e}')
+        logging.exception("Error removing item")
+        flash('Could not remove the item. Please try again.')
     return redirect(url_for('history'))
 
 
@@ -1220,7 +1224,8 @@ def update_item():
     except Exception as e:
         if db:
             db.rollback()
-        flash(f'Error updating item: {e}')
+        logging.exception("Error updating item")
+        flash('Could not update the item. Please try again.')
     return redirect(url_for('history'))
 
 
@@ -1266,7 +1271,8 @@ def manual_payment():
 
         except Exception as e:
             db.rollback()
-            flash(f"Error recording manual payment: {e}")
+            logging.exception("Error recording manual payment")
+            flash('Could not record the payment. Please try again.')
             return redirect(url_for('manual_payment'))
 
     return render_template('manual_payment.html')
@@ -1293,7 +1299,8 @@ def remove_receipt():
         flash(f'Receipt #{receipt_id} removed successfully!')
     except Exception as e:
         db.rollback()
-        flash(f'Error removing receipt: {e}')
+        logging.exception("Error removing receipt")
+        flash('Could not remove the receipt. Please try again.')
 
     return redirect(url_for('history'))
 
