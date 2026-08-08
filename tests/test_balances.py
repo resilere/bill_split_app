@@ -70,6 +70,31 @@ def test_join_date_excludes_member_from_older_receipts():
     assert result['shared_total'] == 18.0
 
 
+def test_settlement_kept_out_of_personal_and_paid():
+    # A real €10 shared bill (Eser paid), then David settles €5 back to Eser.
+    users = [_user('eser'), _user('david')]
+    receipts = [
+        {'id': 1, 'payer_id': 'eser',  'receipt_date': date(2026, 8, 1)},
+        {'id': 2, 'payer_id': 'david', 'receipt_date': date(2026, 8, 2), 'is_settlement': True},
+    ]
+    items = [
+        {'price': 10.0, 'assigned_to': 'shared', 'receipt_id': 1},
+        {'price': 5.0,  'assigned_to': 'eser',   'receipt_id': 2},  # payback to Eser
+    ]
+    result = compute_balances(users, receipts, items)
+    by = {u['id']: u for u in result['users']}
+
+    # The €5 payback must NOT show up as Eser's personal item or David's bill paid.
+    assert by['eser']['personal_total'] == 0.0
+    assert by['eser']['paid_total'] == 10.0
+    assert by['eser']['settlement'] == -5.0   # received 5
+    assert by['david']['paid_total'] == 0.0
+    assert by['david']['settlement'] == 5.0   # paid 5
+    # Net is unchanged by the reclassification: both settled to 0.
+    assert by['eser']['net'] == 0.0
+    assert by['david']['net'] == 0.0
+
+
 def test_settlements_zero_out_the_balances():
     users = [_user('a'), _user('b')]
     receipts = [{'id': 1, 'payer_id': 'a', 'receipt_date': date(2025, 1, 1)}]

@@ -567,12 +567,17 @@ def compute_settlements(balances):
 
 def compute_balances(users, receipts, items):
     """Pure balance math (no DB). Given users (id, name, joined_at), receipts
-    (id, payer_id, receipt_date) and items (price, assigned_to, receipt_id),
-    return {'users': [...], 'shared_total': x, 'settlements': [...]}.
+    (id, payer_id, receipt_date, is_settlement) and items (price, assigned_to,
+    receipt_id), return {'users': [...], 'shared_total': x, 'settlements': [...]}.
 
     Shared items are split only among members who had joined by each receipt's
-    date, so adding a member never retroactively changes older receipts."""
-    acc = {u['id']: {'personal': 0.0, 'shared_owed': 0.0, 'paid': 0.0} for u in users}
+    date, so adding a member never retroactively changes older receipts.
+
+    Settlement receipts (paybacks) are kept out of the 'personal'/'paid'
+    buckets and tracked separately, so those categories reflect only real
+    consumption/bills. The net owed is identical either way."""
+    acc = {u['id']: {'personal': 0.0, 'shared_owed': 0.0, 'paid': 0.0,
+                     'settle_paid': 0.0, 'settle_received': 0.0} for u in users}
     total_shared = 0.0
 
     for receipt in receipts:
@@ -580,6 +585,17 @@ def compute_balances(users, receipts, items):
         rdate = receipt['receipt_date']
         payer_id = receipt['payer_id']
         receipt_items = [i for i in items if i['receipt_id'] == rid]
+        receipt_total = sum(i['price'] for i in receipt_items if i['assigned_to'] != 'excluded')
+
+        # Settlements are paybacks, not shared spending: the payer paid the
+        # amount, the payee received it. Keep them out of personal/paid.
+        if receipt.get('is_settlement'):
+            for item in receipt_items:
+                if item['assigned_to'] in acc:
+                    acc[item['assigned_to']]['settle_received'] += item['price']
+            if payer_id in acc:
+                acc[payer_id]['settle_paid'] += receipt_total
+            continue
 
         # Members who had joined by this receipt's date
         active_ids = [
@@ -599,7 +615,6 @@ def compute_balances(users, receipts, items):
             if item['assigned_to'] in acc:
                 acc[item['assigned_to']]['personal'] += item['price']
 
-        receipt_total = sum(i['price'] for i in receipt_items if i['assigned_to'] != 'excluded')
         if payer_id in acc:
             acc[payer_id]['paid'] += receipt_total
         elif payer_id == 'both' and n == 2:
@@ -610,14 +625,16 @@ def compute_balances(users, receipts, items):
     for u in users:
         uid = u['id']
         d = acc[uid]
+        settlement = d['settle_paid'] - d['settle_received']
         responsibility = d['personal'] + d['shared_owed']
-        net = d['paid'] - responsibility
+        net = d['paid'] + settlement - responsibility
         balances.append({
             'id': uid,
             'name': u['name'],
             'personal_total': round(d['personal'], 2),
             'shared_share': round(d['shared_owed'], 2),
             'paid_total': round(d['paid'], 2),
+            'settlement': round(settlement, 2),
             'responsibility': round(responsibility, 2),
             'net': round(net, 2),
         })
@@ -627,6 +644,13 @@ def compute_balances(users, receipts, items):
         'shared_total': round(total_shared, 2),
         'settlements': compute_settlements(balances),
     }
+
+
+def is_settlement_filename(filename):
+    """A receipt is a settlement (payback) if it was created by the Settle-up
+    button ('Settlement') or the Manual Payment screen ('Manual_...')."""
+    fn = filename or ''
+    return fn == 'Settlement' or fn.startswith('Manual_')
 
 
 def calculate_balances_detailed(group_id):
@@ -642,11 +666,13 @@ def calculate_balances_detailed(group_id):
 
     # All receipts with their effective date for membership cutoff
     cursor.execute(
-        'SELECT id, payer_id, COALESCE(bill_date, upload_date) AS receipt_date '
+        'SELECT id, payer_id, filename, COALESCE(bill_date, upload_date) AS receipt_date '
         'FROM receipts WHERE group_id = %s',
         (group_id,)
     )
     receipts = cursor.fetchall()
+    for r in receipts:
+        r['is_settlement'] = is_settlement_filename(r['filename'])
 
     # All items for this group
     cursor.execute(
@@ -1094,8 +1120,7 @@ def get_bill_history(sort_by='upload_date', group_id=None):
         calculated_total = sum(totals_by_user.values()) + shared_total
         # Settlements (Settle-up button or Manual Payment) are paybacks, not
         # scanned bills — flag them so the UI can label/filter them separately.
-        filename = receipt['filename'] or ''
-        is_settlement = filename == 'Settlement' or filename.startswith('Manual_')
+        is_settlement = is_settlement_filename(receipt['filename'])
         bills_history.append({
             'id': receipt['id'],
             'upload_date': receipt['upload_date'].strftime('%Y-%m-%d %H:%M') if receipt['upload_date'] else "N/A",

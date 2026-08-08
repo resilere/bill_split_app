@@ -80,11 +80,19 @@
         {% endfor %}
       </tr>
       <tr>
-        <td>Amount paid</td>
+        <td>Amount paid <span style="color:var(--text-muted); font-weight:400; font-size:0.85em;">(bills)</span></td>
         {% for u in balance.users %}
         <td class="text-right">{{ u.paid_total | euro }}</td>
         {% endfor %}
       </tr>
+      {% if balance.users | selectattr('settlement') | list %}
+      <tr>
+        <td>Settlements <span style="color:var(--text-muted); font-weight:400; font-size:0.85em;">(paid − received)</span></td>
+        {% for u in balance.users %}
+        <td class="text-right">{{ u.settlement | euro }}</td>
+        {% endfor %}
+      </tr>
+      {% endif %}
     </tbody>
     <tfoot>
       <tr>
