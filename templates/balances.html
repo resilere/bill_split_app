@@ -26,7 +26,7 @@
       <span style="color: var(--text-muted);"> owes </span>
       <span style="font-weight: 600;">{{ s.to_name }}</span>
     </div>
-    <span style="font-size: 1.5em; font-weight: 700; color: var(--primary);">€{{ "%.2f"|format(s.amount) }}</span>
+    <span style="font-size: 1.5em; font-weight: 700; color: var(--primary);">{{ s.amount | euro }}</span>
     <form method="POST" action="{{ url_for('settle') }}" style="margin: 0;"
           onsubmit="return confirm('Mark as settled? This records a €{{ '%.2f'|format(s.amount) }} payment from {{ s.from_name }} to {{ s.to_name }}.');">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -70,19 +70,19 @@
       <tr>
         <td>Personal items</td>
         {% for u in balance.users %}
-        <td class="text-right">€{{ "%.2f"|format(u.personal_total) }}</td>
+        <td class="text-right">{{ u.personal_total | euro }}</td>
         {% endfor %}
       </tr>
       <tr>
         <td>Shared items (split {{ balance.users|length }}-way)</td>
         {% for u in balance.users %}
-        <td class="text-right">€{{ "%.2f"|format(u.shared_share) }}</td>
+        <td class="text-right">{{ u.shared_share | euro }}</td>
         {% endfor %}
       </tr>
       <tr>
         <td>Amount paid</td>
         {% for u in balance.users %}
-        <td class="text-right">€{{ "%.2f"|format(u.paid_total) }}</td>
+        <td class="text-right">{{ u.paid_total | euro }}</td>
         {% endfor %}
       </tr>
     </tbody>
@@ -90,7 +90,7 @@
       <tr>
         <td>Net responsibility</td>
         {% for u in balance.users %}
-        <td class="text-right">€{{ "%.2f"|format(u.responsibility) }}</td>
+        <td class="text-right">{{ u.responsibility | euro }}</td>
         {% endfor %}
       </tr>
     </tfoot>

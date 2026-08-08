@@ -106,7 +106,7 @@
         {% endif %}
       </div>
       <span class="badge badge-primary" style="font-size:0.85em;">
-        €{{ "%.2f"|format(receipt.total_sum) }}
+        {{ receipt.total_sum | euro }}
         · {{ receipt.parsed_items|length }} items
       </span>
       {% if receipts|length > 1 %}
@@ -243,7 +243,7 @@
     </button>
     <span style="color:var(--text-muted); font-size:0.85em;">
       Total across all receipts:
-      <strong id="grandTotal">€{{ "%.2f"|format(receipts|sum(attribute='total_sum')) }}</strong>
+      <strong id="grandTotal">{{ receipts|sum(attribute='total_sum') | euro }}</strong>
     </span>
   </div>
 </form>

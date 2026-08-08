@@ -83,7 +83,7 @@
           {% for item in receipt["items"] %}
           <tr>
             <td>{{ item.description }}</td>
-            <td class="text-right">€{{ "%.2f"|format(item.price) }}</td>
+            <td class="text-right">{{ item.price | euro }}</td>
             <td>
               <form action="{{ url_for('update_item') }}" method="POST" style="margin:0;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -135,13 +135,13 @@
             <td colspan="4" class="text-right" style="padding:10px 12px;">
               <span style="color:var(--text-muted); font-weight:400; font-size:0.88em; margin-right:14px;">
                 {% for u in all_users %}
-                {{ u.name }}: €{{ "%.2f"|format(receipt.totals_by_user.get(u.id, 0)) }}
+                {{ u.name }}: {{ receipt.totals_by_user.get(u.id, 0) | euro }}
                 {% if not loop.last %}&nbsp;·&nbsp;{% endif %}
                 {% endfor %}
-                &nbsp;·&nbsp; Shared: €{{ "%.2f"|format(receipt.shared_total) }}
+                &nbsp;·&nbsp; Shared: {{ receipt.shared_total | euro }}
               </span>
               <span style="font-size:1.05em; font-weight:700; color:var(--primary);">
-                Total: €{{ "%.2f"|format(receipt.total) }}
+                Total: {{ receipt.total | euro }}
               </span>
             </td>
           </tr>

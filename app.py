@@ -419,6 +419,15 @@ def inject_all_users():
         return {'all_users': []}
 
 
+@app.template_filter('euro')
+def euro_filter(value):
+    """Format a number as a euro amount, e.g. 12.5 -> '€12.50'."""
+    try:
+        return f"€{float(value):.2f}"
+    except (TypeError, ValueError):
+        return "€0.00"
+
+
 def parse_bill_text(text):
     """
     Parses bill text to extract items and their prices.
