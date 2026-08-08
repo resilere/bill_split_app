@@ -460,14 +460,28 @@ def parse_bill_text(text):
         match = item_line_pattern.search(line)
         if match:
             description = match.group(1).strip()
-            # Replace comma with period for float conversion
-            price_str = match.group(2).replace(',', '.')
             try:
-                price = float(price_str)
+                price = _price_to_float(match.group(2))
                 items.append({'description': description, 'price': price, 'is_valid': True})
             except ValueError:
                 continue
     return items
+
+
+def _price_to_float(price_str):
+    """Convert a matched price token to a float, handling both European
+    (1.234,56) and US (1,234.56) grouping. The last '.' or ',' is always the
+    decimal separator (the regex guarantees exactly two trailing digits); any
+    earlier separators are thousands groupers and are stripped."""
+    neg = price_str.strip().startswith('-')
+    s = price_str.strip().lstrip('-')
+    last_sep = max(s.rfind('.'), s.rfind(','))
+    if last_sep == -1:
+        value = float(s)
+    else:
+        integer = re.sub(r'[.,]', '', s[:last_sep])
+        value = float(f"{integer}.{s[last_sep + 1:]}")
+    return -value if neg else value
 
 def preprocess_image(pil_image):
     """Enhances receipt image for better OCR accuracy."""
@@ -542,35 +556,13 @@ def compute_settlements(balances):
     return settlements
 
 
-def calculate_balances_detailed(group_id):
-    cursor = get_cursor()
+def compute_balances(users, receipts, items):
+    """Pure balance math (no DB). Given users (id, name, joined_at), receipts
+    (id, payer_id, receipt_date) and items (price, assigned_to, receipt_id),
+    return {'users': [...], 'shared_total': x, 'settlements': [...]}.
 
-    # Users with their join dates (founding members default to '2000-01-01')
-    cursor.execute(
-        'SELECT id, name, joined_at FROM users WHERE group_id = %s ORDER BY name',
-        (group_id,)
-    )
-    users = cursor.fetchall()
-
-    # All receipts with their effective date for membership cutoff
-    cursor.execute(
-        'SELECT id, payer_id, COALESCE(bill_date, upload_date) AS receipt_date '
-        'FROM receipts WHERE group_id = %s',
-        (group_id,)
-    )
-    receipts = cursor.fetchall()
-
-    # All items for this group
-    cursor.execute(
-        'SELECT i.price, i.assigned_to, i.receipt_id FROM items i '
-        'JOIN receipts r ON r.id = i.receipt_id WHERE r.group_id = %s',
-        (group_id,)
-    )
-    items = cursor.fetchall()
-    for item in items:
-        item['price'] = float(item['price'])
-
-    # Accumulate per-user totals, computing N per receipt based on who had joined by then.
+    Shared items are split only among members who had joined by each receipt's
+    date, so adding a member never retroactively changes older receipts."""
     acc = {u['id']: {'personal': 0.0, 'shared_owed': 0.0, 'paid': 0.0} for u in users}
     total_shared = 0.0
 
@@ -621,12 +613,43 @@ def calculate_balances_detailed(group_id):
             'net': round(net, 2),
         })
 
-    settlements = compute_settlements(balances)
     return {
         'users': balances,
         'shared_total': round(total_shared, 2),
-        'settlements': settlements,
+        'settlements': compute_settlements(balances),
     }
+
+
+def calculate_balances_detailed(group_id):
+    """Fetch a group's users/receipts/items from the DB and compute balances."""
+    cursor = get_cursor()
+
+    # Users with their join dates (founding members default to '2000-01-01')
+    cursor.execute(
+        'SELECT id, name, joined_at FROM users WHERE group_id = %s ORDER BY name',
+        (group_id,)
+    )
+    users = cursor.fetchall()
+
+    # All receipts with their effective date for membership cutoff
+    cursor.execute(
+        'SELECT id, payer_id, COALESCE(bill_date, upload_date) AS receipt_date '
+        'FROM receipts WHERE group_id = %s',
+        (group_id,)
+    )
+    receipts = cursor.fetchall()
+
+    # All items for this group
+    cursor.execute(
+        'SELECT i.price, i.assigned_to, i.receipt_id FROM items i '
+        'JOIN receipts r ON r.id = i.receipt_id WHERE r.group_id = %s',
+        (group_id,)
+    )
+    items = cursor.fetchall()
+    for item in items:
+        item['price'] = float(item['price'])
+
+    return compute_balances(users, receipts, items)
 
 
 
