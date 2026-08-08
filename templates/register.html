@@ -1,54 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Register{% endblock %}
+{% block title %}Register – Splight{% endblock %}
 {% block content %}
-<h1 style="margin-bottom: 10px;">Create a New Account</h1>
-<p style="margin-bottom: 20px; color: #555;">Fill out the form below to register a new user.</p>
+<div style="max-width: 440px;">
+  <h1>Create your account</h1>
+  <p class="page-subtitle">Register to start splitting bills with your household.</p>
 
-<form method="POST" action="{{ url_for('register') }}" style="max-width: 400px;">
+  <form method="POST" action="{{ url_for('register') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <!-- Username -->
-    <div style="margin-bottom: 15px;">
-        <label for="username" style="display: block; font-weight: bold; margin-bottom: 5px;">Username</label>
-        <input type="text" name="username" id="username" required
-               style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+    <div class="form-group">
+      <label class="form-label" for="username">Username</label>
+      <input type="text" name="username" id="username" class="form-control" required>
     </div>
-
-    <!-- Email -->
-    <div style="margin-bottom: 15px;">
-        <label for="email" style="display: block; font-weight: bold; margin-bottom: 5px;">Email</label>
-        <input type="email" name="email" id="email" required
-               style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+    <div class="form-group">
+      <label class="form-label" for="email">Email</label>
+      <input type="email" name="email" id="email" class="form-control" required>
     </div>
-
-    <!-- Household invite code -->
-    <div style="margin-bottom: 15px;">
-        <label for="group_code" style="display: block; font-weight: bold; margin-bottom: 5px;">Household invite code (optional)</label>
-        <input type="text" name="group_code" id="group_code"
-               style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
-        <small style="color: #777;">Leave blank to start a new household - you'll get an invite code to share afterwards.</small>
+    <div class="form-group">
+      <label class="form-label" for="group_code">Household invite code (optional)</label>
+      <input type="text" name="group_code" id="group_code" class="form-control">
+      <div class="form-hint">Leave blank to start a new household — you'll get an invite code to share afterwards.</div>
     </div>
-
-    <!-- Password -->
-    <div style="margin-bottom: 15px;">
-        <label for="password" style="display: block; font-weight: bold; margin-bottom: 5px;">Password</label>
-        <input type="password" name="password" id="password" required
-               style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+    <div class="form-group">
+      <label class="form-label" for="password">Password</label>
+      <input type="password" name="password" id="password" class="form-control" required>
     </div>
-
-    <!-- Confirm Password -->
-    <div style="margin-bottom: 20px;">
-        <label for="confirm_password" style="display: block; font-weight: bold; margin-bottom: 5px;">Confirm Password</label>
-        <input type="password" name="confirm_password" id="confirm_password" required
-               style="width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+    <div class="form-group">
+      <label class="form-label" for="confirm_password">Confirm password</label>
+      <input type="password" name="confirm_password" id="confirm_password" class="form-control" required>
     </div>
+    <button type="submit" class="btn btn-primary btn-lg">Register</button>
+  </form>
 
-    <button type="submit" 
-            style="padding: 12px 20px; background-color: #1a73e8; color: white; border: none; border-radius: 6px; font-size: 1em; cursor: pointer;">
-        Register
-    </button>
-</form>
-
-<p style="margin-top: 15px; color: #555;">
-    Already have an account? <a href="{{ url_for('login') }}" style="color: #1a73e8;">Login here</a>.
-</p>
+  <p style="margin-top:16px; font-size:0.88em; color:var(--text-muted);">
+    Already have an account? <a href="{{ url_for('login') }}" style="color:var(--primary);">Log in</a>.
+  </p>
+</div>
 {% endblock %}

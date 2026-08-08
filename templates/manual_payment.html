@@ -1,35 +1,48 @@
 {% extends "base.html" %}
-{% block title %}Manual Settlement{% endblock %}
+{% block title %}Manual Payment – Splight{% endblock %}
 {% block content %}
-<h1>Add Manual Payment / Settlement</h1>
+<div style="max-width: 460px;">
+  <h1>Add manual payment</h1>
+  <p class="page-subtitle">Record a settlement or a bill that wasn't scanned from a receipt.</p>
 
-<form method="POST">
+  <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label for="payer">Payer:</label>
-    <select name="payer" id="payer" required>
-        {% for u in all_users %}
-        <option value="{{ u.id }}">{{ u.name }}</option>
-        {% endfor %}
-    </select><br><br>
 
-    <label for="payee">Assign To / Payee:</label>
-    <select name="payee" id="payee" required>
+    <div class="form-group">
+      <label class="form-label" for="payer">Payer</label>
+      <select name="payer" id="payer" class="form-control" required>
+        {% for u in all_users %}
+        <option value="{{ u.id }}" {% if u.id == current_user.id %}selected{% endif %}>{{ u.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="payee">Assign to / payee</label>
+      <select name="payee" id="payee" class="form-control" required>
         {% for u in all_users %}
         <option value="{{ u.id }}">{{ u.name }}</option>
         {% endfor %}
         <option value="shared">Shared</option>
-    </select><br><br>
+      </select>
+    </div>
 
-    <label for="amount">Amount (€):</label>
-    <input type="number" name="amount" id="amount" step="0.01" required><br><br>
+    <div class="form-group">
+      <label class="form-label" for="amount">Amount (€)</label>
+      <input type="number" name="amount" id="amount" step="0.01" class="form-control" required>
+    </div>
 
-    <label for="description">Description:</label>
-    <input type="text" name="description" id="description" placeholder="e.g., 'Paid back lunch'" /><br><br>
+    <div class="form-group">
+      <label class="form-label" for="description">Description</label>
+      <input type="text" name="description" id="description" class="form-control" placeholder="e.g. Paid back lunch">
+    </div>
 
-    <label for="payment_date">Date of Payment:</label>
-    <input type="date" id="payment_date" name="payment_date" required
-           style="padding:5px; border:1px solid #ccc; border-radius:4px;"><br><br>
+    <div class="form-group">
+      <label class="form-label" for="payment_date">Date of payment</label>
+      <input type="date" name="payment_date" id="payment_date" class="form-control" required>
+    </div>
 
-    <button type="submit">Record Payment</button>
-</form>
+    <button type="submit" class="btn btn-primary btn-lg">Record payment</button>
+  </form>
+</div>
 {% endblock %}
