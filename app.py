@@ -1092,10 +1092,15 @@ def get_bill_history(sort_by='upload_date', group_id=None):
                            for uid in user_ids}
         shared_total = sum(item['price'] for item in items if item['assigned_to'] == 'shared')
         calculated_total = sum(totals_by_user.values()) + shared_total
+        # Settlements (Settle-up button or Manual Payment) are paybacks, not
+        # scanned bills — flag them so the UI can label/filter them separately.
+        filename = receipt['filename'] or ''
+        is_settlement = filename == 'Settlement' or filename.startswith('Manual_')
         bills_history.append({
             'id': receipt['id'],
             'upload_date': receipt['upload_date'].strftime('%Y-%m-%d %H:%M') if receipt['upload_date'] else "N/A",
             'filename': receipt['filename'],
+            'is_settlement': is_settlement,
             'date': receipt['bill_date'] if receipt['bill_date'] else "Unknown",
             'payer': receipt['payer_id'],
             'items': items,
