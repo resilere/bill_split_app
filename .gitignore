@@ -10,3 +10,6 @@ billsplitter.db
 
 # User-uploaded files
 uploads/
+
+# Real receipt fixtures may contain personal data — keep them local only
+tests/fixtures/

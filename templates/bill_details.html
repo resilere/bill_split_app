@@ -118,13 +118,18 @@
     <div id="receipt-body-{{ ri }}" style="padding: 20px;">
       <div style="display:flex; gap:28px; flex-wrap:wrap;">
 
-        <!-- Image preview (click to enlarge; stays pinned while you scroll) -->
-        {% if receipt.image_path %}
+        <!-- Image preview (click a page to enlarge; stays pinned while you scroll) -->
+        {% if receipt.image_paths %}
         <div style="flex:0 0 auto;">
-          <div style="position:sticky; top:16px;">
-            <img src="{{ receipt.image_path }}" alt="Receipt" class="receipt-img"
+          <div style="position:sticky; top:16px; display:flex; flex-direction:column; gap:8px;">
+            {% for img in receipt.image_paths %}
+            <img src="{{ img }}" alt="Receipt page {{ loop.index }}" class="receipt-img"
                  onclick="this.classList.toggle('zoomed')">
-            <p class="receipt-img-hint">🔍 Click the receipt to enlarge / shrink</p>
+            {% endfor %}
+            <p class="receipt-img-hint">
+              🔍 Click a page to enlarge / shrink
+              {% if receipt.image_paths|length > 1 %} · {{ receipt.image_paths|length }} pages{% endif %}
+            </p>
           </div>
         </div>
         {% endif %}

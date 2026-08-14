@@ -492,6 +492,94 @@ def _price_to_float(price_str):
         value = float(f"{integer}.{s[last_sep + 1:]}")
     return -value if neg else value
 
+
+# ── Digital (text-layer) PDF parsing ─────────────────────────────────────────
+# Some receipts are emailed digital PDFs, not scans. They have a real text layer
+# but a multi-column layout that OCR-style line parsing can't handle. Each vendor
+# gets a coordinate-based parser, chosen by a detector on the extracted text.
+
+def _cluster_name_rows(words, x_lo, x_hi, size_min):
+    """Cluster the body words in a column into visual rows (by vertical position),
+    each joined left-to-right. Used to reassemble product names."""
+    toks = [w for w in words if w.get('size', 0) >= size_min and x_lo <= w['x0'] <= x_hi]
+    rows = []
+    for w in sorted(toks, key=lambda w: (round(w['top']), w['x0'])):
+        for r in rows:
+            if abs(r['top'] - w['top']) <= 4:
+                r['w'].append(w)
+                break
+        else:
+            rows.append({'top': w['top'], 'w': [w]})
+    return [{'top': r['top'],
+             'text': ' '.join(x['text'] for x in sorted(r['w'], key=lambda x: x['x0']))}
+            for r in sorted(rows, key=lambda r: r['top'])]
+
+
+def parse_picnic_words(pages_words):
+    """Parse a Picnic 'Dein Bon' receipt from pdfplumber words.
+
+    Input: one list of word dicts {text, x0, top, size} per page.
+    Output: [{'description', 'price', 'is_valid'}].
+
+    Picnic's grid: quantity box at x≈193, product name at x≈238 (size 8) with a
+    size/weight sub-line and any discount at size 6, and a right-aligned price
+    whose euros are size 14 (x≈390) and cents a size-8 superscript (x≈398) with
+    the decimal point orphaned on the next line. Discounted items show the
+    original price then the lower final price ~24px below. We anchor on the
+    size-14 euro tokens, reconstruct each price, take the discounted price when a
+    second price sits just below, and gather the name row(s) spanning that price
+    line (so wrapped 2nd name lines are included)."""
+    items = []
+    for words in pages_words:
+        smalls = [w for w in words if w['text'].isdigit() and w.get('size', 0) < 12 and w['x0'] > 393]
+        clusters = []
+        for w in words:
+            if w['text'].isdigit() and w.get('size', 0) >= 12 and w['x0'] > 350:
+                cand = [s for s in smalls if -3 <= (s['top'] - w['top']) <= 9]
+                cents = int(min(cand, key=lambda s: abs(s['top'] - w['top']))['text']) if cand else 0
+                clusters.append({'top': w['top'], 'price': int(w['text']) + cents / 100.0})
+        clusters.sort(key=lambda c: c['top'])
+
+        name_rows = _cluster_name_rows(words, 230, 380, 7.5)
+
+        # Everything from the first totals/deposit label (Pfand, Zwischensumme,
+        # Gesamtbetrag, MwSt) downward is not a grocery item.
+        totals_tops = [w['top'] for w in words
+                       if 'summe' in w['text'].lower() or w['text'].lower() in ('pfand', 'gesamtbetrag', 'mwst')]
+        stop_top = min(totals_tops) if totals_tops else float('inf')
+
+        used = [False] * len(clusters)
+        for k, c in enumerate(clusters):
+            if c['top'] >= stop_top - 4:
+                break
+            if used[k]:
+                continue
+            final = c['price']
+            # A price cluster within ~30px below is the discounted (red) price.
+            if k + 1 < len(clusters) and 0 < clusters[k + 1]['top'] - c['top'] <= 30:
+                final = clusters[k + 1]['price']
+                used[k + 1] = True
+            names = sorted((nr for nr in name_rows if c['top'] - 15 <= nr['top'] <= c['top'] + 6),
+                           key=lambda nr: nr['top'])
+            desc = ' '.join(nr['text'] for nr in names).strip()
+            if not any(ch.isalpha() for ch in desc):
+                continue  # totals amount or deposit row (no real product name)
+            items.append({'description': desc, 'price': round(final, 2), 'is_valid': True})
+    return items
+
+
+def parse_picnic_pdf(pdf):
+    """pdfplumber adapter for parse_picnic_words."""
+    return parse_picnic_words([pg.extract_words(extra_attrs=['size']) for pg in pdf.pages])
+
+
+# Registry of (detector, parser) for digital PDFs. First matching detector wins;
+# if none match, we fall back to OCR-style parse_bill_text on the plain text.
+DIGITAL_PDF_PARSERS = [
+    (lambda text: 'picnic' in text.lower() or 'dein bon' in text.lower(), parse_picnic_pdf),
+]
+
+
 def preprocess_image(pil_image):
     """Enhances receipt image for better OCR accuracy."""
     # Convert PIL to OpenCV
@@ -698,12 +786,15 @@ OCR_CONFIG = r'--oem 3 --psm 4 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKL
 
 
 def _process_one_file(file):
-    """OCR-process a single uploaded file. Returns a result dict or None on error."""
+    """Extract items from a single uploaded receipt. Returns a result dict or
+    None on error. Images go through OCR; PDFs use their text layer, routed to a
+    vendor-specific digital parser when one matches, else OCR-style parsing."""
     file_bytes = file.read()
     ext = file.filename.rsplit('.', 1)[-1].lower()
     unique_filename = str(uuid.uuid4())
     extracted_text = ""
-    image_path_for_display = None
+    image_files = []          # rendered preview page(s), in order
+    parsed_items = None       # set directly when a digital parser handles it
 
     date_match = re.search(r'\d{4}-\d{2}-\d{2}', file.filename)
     bill_date = date_match.group(0) if date_match else 'Unknown Date'
@@ -713,8 +804,9 @@ def _process_one_file(file):
         if ext in ('png', 'jpg', 'jpeg', 'gif'):
             img = Image.open(io.BytesIO(file_bytes))
             processed_img = preprocess_image(img)
-            image_path_for_display = f"{unique_filename}.png"
-            processed_img.save(os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display))
+            name = f"{unique_filename}.png"
+            processed_img.save(os.path.join(app.config['UPLOAD_FOLDER'], name))
+            image_files.append(name)
             logging.info("Running OCR on image...")
             extracted_text = pytesseract.image_to_string(processed_img, lang='deu+eng', config=OCR_CONFIG)
             logging.info("OCR complete.")
@@ -724,10 +816,17 @@ def _process_one_file(file):
                     page_text = page.extract_text()
                     if page_text:
                         extracted_text += page_text + "\n--PAGE BREAK--\n"
-                image_path_for_display = f"{unique_filename}.png"
-                pdf.pages[0].to_image(resolution=150).save(
-                    os.path.join(app.config['UPLOAD_FOLDER'], image_path_for_display)
-                )
+                # Render every page for the preview (not just the first).
+                for i, page in enumerate(pdf.pages):
+                    name = f"{unique_filename}_p{i}.png"
+                    page.to_image(resolution=150).save(os.path.join(app.config['UPLOAD_FOLDER'], name))
+                    image_files.append(name)
+                # Route to a vendor-specific digital parser if one matches.
+                for detector, parser in DIGITAL_PDF_PARSERS:
+                    if detector(extracted_text):
+                        parsed_items = parser(pdf)
+                        logging.info(f"Digital PDF parser matched: {len(parsed_items)} items.")
+                        break
                 logging.info(f"PDF processed ({len(pdf.pages)} pages).")
         else:
             flash(f'Unsupported file type: {ext}')
@@ -737,13 +836,15 @@ def _process_one_file(file):
         flash(f"Couldn't process {file.filename}. Make sure it's a valid image or PDF.")
         return None
 
-    parsed_items = parse_bill_text(extracted_text)
+    if parsed_items is None:
+        parsed_items = parse_bill_text(extracted_text)
+
     return {
         'filename': file.filename,
         'bill_date': bill_date,
         'parsed_items': parsed_items,
         'total_sum': round(sum(i['price'] for i in parsed_items), 2),
-        'image_path': url_for('uploaded_file', filename=image_path_for_display) if image_path_for_display else None,
+        'image_paths': [url_for('uploaded_file', filename=n) for n in image_files],
     }
 
 
